@@ -1,0 +1,15 @@
+package com.nlevcluster.sender.model
+
+/**
+ *  External data layer representation of UsbCanFeed
+ */
+data class CanFeed(
+    val transmission: Transmission,
+    val battery: Battery,
+    val odometer: Odometer,
+    val indicator: Indicator,
+    val ignition: Ignition,
+    val stand: Stand,
+    val evMode: EvMode,
+    val usbState: UsbState?,
+)
