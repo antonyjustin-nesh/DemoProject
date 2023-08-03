@@ -18,7 +18,7 @@ android {
         versionName = "1.0"
 
         buildConfigField("String", "SERVER_URI", "\"tcp://0.0.0.0:1883\"")
-        buildConfigField("String", "CLIENT_ID", "\"nlevcluster-display\"")
+        buildConfigField("String", "CLIENT_ID", "\"nlevcluster-sender\"")
         buildConfigField("String", "MQTT_USERNAME", "\"\"")
         buildConfigField("String", "MQTT_PASSWORD", "\"\"")
 
@@ -82,6 +82,9 @@ dependencies {
 
 //    Logcat
     implementation("com.squareup.logcat:logcat:0.1")
+
+    //Gson
+    implementation("com.google.code.gson:gson:2.10.1")
 }
 
 // Allow references to generated code

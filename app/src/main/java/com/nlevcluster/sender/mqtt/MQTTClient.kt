@@ -1,10 +1,18 @@
 package com.nlevcluster.sender.mqtt
 
 import android.content.Context
+import android.util.Log
+import com.google.gson.Gson
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.nlevcluster.sender.BuildConfig
 import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.logging.LogHelper
+import com.nlevcluster.sender.model.CanFeed
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import logcat.logcat
 import org.eclipse.paho.android.service.MqttAndroidClient
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
@@ -13,17 +21,23 @@ import org.eclipse.paho.client.mqttv3.MqttCallback
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
+import java.io.PrintWriter
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class MQTTClient @Inject constructor(@ApplicationContext context: Context) {
+class MQTTClient @Inject constructor(
+    @ApplicationContext context: Context,
+    private val gson: Gson,
+) {
 
     @Inject
     lateinit var logHelper: LogHelper
 
     private val TAG = "MQTT CLIENT"
     val mqttAndroidClient = MqttAndroidClient(context, SERVER_URI, CLIENT_ID)
+
+    val externalScope = CoroutineScope(SupervisorJob()+Dispatchers.IO)
 
     companion object {
         //variable for MQTT android client for publish and subscription
@@ -40,13 +54,32 @@ class MQTTClient @Inject constructor(@ApplicationContext context: Context) {
             /**
              * Try to connect again with MQTTAndroidClient
              */
-            connect(mqttAndroidClient)
+            connect()
             logHelper.log(LogType.INFO, "MQTT connection lost")
         }
 
         override fun messageArrived(topic: String?, message: MqttMessage?) {
             try {
-                data = message?.payload.toString()
+                data = message?.toString()
+                logcat { "Received data $data" }
+                /**
+                 * Fetching the processed data from the processor application to transmit to backend as packets
+                 */
+                if (topic != null && topic.equals("processor/cloud", true) && data != null) {
+                    externalScope.launch {
+                        val canFeed = gson.fromJson<CanFeed>(data, CanFeed::class.java)
+                        try {
+                            val socket = java.net.Socket("ev.nesh.live", 7788)
+                            val outputStream = PrintWriter(socket.getOutputStream())
+                            outputStream.println(getDataString(canFeed))
+                            outputStream.flush()
+                            outputStream.close()
+                            socket.close()
+                        } catch (ex: Exception) {
+                            Log.d("Exception", "Exception on launch $ex")
+                        }
+                    }
+                }
                 logHelper.log(LogType.INFO, "$message arrived from topic $topic")
             } catch (ex: Exception) {
                 logHelper.log(LogType.EXCEPTION, "Exception on converting message to string $ex")
@@ -56,6 +89,16 @@ class MQTTClient @Inject constructor(@ApplicationContext context: Context) {
         override fun deliveryComplete(token: IMqttDeliveryToken?) {
             logHelper.log(LogType.INFO, "MQTT message delivery complete")
         }
+    }
+
+    /**
+     * Generate tcpip protocol feed
+     */
+    fun getDataString(canFeed: CanFeed): String {
+//        ^NLPR|DeviceID|SequenceNumber|Lattitude|Longitude|Altitude|Time|Date|Speed|Heading|
+//        NoOfSat|MainPowerStatus|IgnitionStatus|MovementStatus|InterBatteryVoltage|InterBatteryPercentage|GPSOdometer|GPSDataValidityStatus|PacketLiveOrStoredStatus|Battery Voltage|Battery Current|Battery SoC|Battery CapacityRemaining|Vehicle Speed| Vehicle Odometer|MotorRPM||VehicleMode|Gear Postion|CustomerCode#
+        return "^NLPR|353555072153311|1|${canFeed.currentLocation?.latitude}|${canFeed.currentLocation?.longitude}|850|083000|020823|2.3|34|5|1|1|1|3.9|23|149.3|1|1|62|-12.5|56|32|12|152|3451|2|0|100#"
+
     }
 
     /**
@@ -134,19 +177,18 @@ class MQTTClient @Inject constructor(@ApplicationContext context: Context) {
      * @param mqttCallback
      */
     fun connect(
-        mqttClient: MqttAndroidClient,
         username: String = "",
         password: String = "",
         mqttConnect: IMqttActionListener = defaultMqttConnect,
         mqttCallback: MqttCallback = defaultMqttCallback
     ) {
-        mqttClient.setCallback(mqttCallback)
+        mqttAndroidClient.setCallback(mqttCallback)
         val options = MqttConnectOptions()
         options.userName = username
         options.password = password.toCharArray()
 
         try {
-            mqttClient.connect(options, null, mqttConnect)
+            mqttAndroidClient.connect(options, null, mqttConnect)
         } catch (e: MqttException) {
             logHelper.log(LogType.EXCEPTION, "Exception on connecting the mqtt client $e")
         }
@@ -222,7 +264,7 @@ class MQTTClient @Inject constructor(@ApplicationContext context: Context) {
         mqttClient: MqttAndroidClient,
         topic: String,
         msg: String,
-        qos: Int = 1,
+        qos: Int = 0,
         retained: Boolean = false,
         mqttPublish: IMqttActionListener = defaultMqttPublish
     ) {
@@ -247,7 +289,7 @@ class MQTTClient @Inject constructor(@ApplicationContext context: Context) {
      * @param mqttDisconnect
      */
     fun disconnect(
-        mqttClient: MqttAndroidClient,
+        mqttClient: MqttAndroidClient = mqttAndroidClient,
         mqttDisconnect: IMqttActionListener = defaultMqttDisconnect
     ) {
         try {
