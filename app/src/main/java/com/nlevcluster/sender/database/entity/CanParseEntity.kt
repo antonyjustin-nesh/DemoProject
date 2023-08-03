@@ -7,19 +7,41 @@ import com.nlevcluster.sender.model.CanFeed
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 
+/**
+ * entity class for parsed can data
+ */
 @Entity(tableName = "can_parse")
 data class CanParseEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Int = 0,
     val soc: Double,
+    val range: Int,
+    val speed: Int,
+    val odometer: Double,
     val evMode: String,
+    val rpm: Double,
+    @ColumnInfo(name = "gps_location")
+    val gpsLocation: String,
+    val latitude: Double,
+    val longitude: Double,
+    val accuracy: Double,
+    val gpsSpeed: Double,
     @ColumnInfo(name = "created_date")
-    val createdDate: Instant,
+    val createdDate: Long,
 )
 
 fun CanFeed.asEntity() = CanParseEntity(
     soc = battery.remainingPercent.toDouble(),
+    rpm = transmission.rpm,
+    range = battery.range,
+    speed = transmission.speed,
+    odometer = odometer.totalKm,
     evMode = evMode.mode,
-    createdDate = Clock.System.now()
+    gpsLocation = gps,
+    latitude = currentLocation?.latitude ?: 0.0,
+    longitude = currentLocation?.longitude ?: 0.0,
+    accuracy = currentLocation?.accuracy ?: 0.0,
+    gpsSpeed = currentLocation?.speed ?: 0.0,
+    createdDate = Clock.System.now().toEpochMilliseconds(),
 )
 

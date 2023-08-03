@@ -1,16 +1,20 @@
 package com.nlevcluster.sender.mqtt
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.google.gson.Gson
-import dagger.hilt.android.qualifiers.ApplicationContext
 import com.nlevcluster.sender.BuildConfig
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.nlevcluster.sender.database.LogType
+import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.logging.LogHelper
 import com.nlevcluster.sender.model.CanFeed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import logcat.logcat
 import org.eclipse.paho.android.service.MqttAndroidClient
@@ -36,8 +40,8 @@ class MQTTClient @Inject constructor(
 
     private val TAG = "MQTT CLIENT"
     val mqttAndroidClient = MqttAndroidClient(context, SERVER_URI, CLIENT_ID)
-
-    val externalScope = CoroutineScope(SupervisorJob()+Dispatchers.IO)
+    var handler = Handler(Looper.getMainLooper())
+    val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     companion object {
         //variable for MQTT android client for publish and subscription
@@ -59,31 +63,45 @@ class MQTTClient @Inject constructor(
         }
 
         override fun messageArrived(topic: String?, message: MqttMessage?) {
-            try {
-                data = message?.toString()
-                logcat { "Received data $data" }
-                /**
-                 * Fetching the processed data from the processor application to transmit to backend as packets
-                 */
-                if (topic != null && topic.equals("processor/cloud", true) && data != null) {
-                    externalScope.launch {
-                        val canFeed = gson.fromJson<CanFeed>(data, CanFeed::class.java)
-                        try {
-                            val socket = java.net.Socket("ev.nesh.live", 7788)
-                            val outputStream = PrintWriter(socket.getOutputStream())
-                            outputStream.println(getDataString(canFeed))
-                            outputStream.flush()
-                            outputStream.close()
-                            socket.close()
-                        } catch (ex: Exception) {
-                            Log.d("Exception", "Exception on launch $ex")
+            handler.postDelayed(object : Runnable {
+                override fun run() {
+                    try {
+                        data = message?.toString()
+                        logcat { "Received data $data" }
+                        /**
+                         * Fetching the processed data from the processor application to transmit to backend as packets
+                         */
+                        externalScope.launch {
+                            if (topic != null && topic.equals(
+                                    "processor/cloud",
+                                    true
+                                ) && data != null
+                            ) {
+                                val canFeed =
+                                    gson.fromJson<CanParseEntity>(data, CanParseEntity::class.java)
+                                try {
+//                                    val socket = java.net.Socket("ev.nesh.live", 7788)
+//                                    val outputStream = PrintWriter(socket.getOutputStream())
+//                                    outputStream.println(getDataString(canFeed))
+//                                    outputStream.flush()
+//                                    outputStream.close()
+//                                    socket.close()
+                                } catch (ex: Exception) {
+                                    Log.d("Exception", "Exception on launch $ex")
+                                }
+                            }
                         }
+                        logHelper.log(LogType.INFO, "$message arrived from topic $topic")
+                    } catch (ex: Exception) {
+                        logHelper.log(
+                            LogType.EXCEPTION,
+                            "Exception on converting message to string $ex"
+                        )
                     }
                 }
-                logHelper.log(LogType.INFO, "$message arrived from topic $topic")
-            } catch (ex: Exception) {
-                logHelper.log(LogType.EXCEPTION, "Exception on converting message to string $ex")
-            }
+
+            }, 10000)
+
         }
 
         override fun deliveryComplete(token: IMqttDeliveryToken?) {
@@ -94,12 +112,13 @@ class MQTTClient @Inject constructor(
     /**
      * Generate tcpip protocol feed
      */
-    fun getDataString(canFeed: CanFeed): String {
+    fun getDataString(canParseEntity: CanParseEntity): String {
 //        ^NLPR|DeviceID|SequenceNumber|Lattitude|Longitude|Altitude|Time|Date|Speed|Heading|
 //        NoOfSat|MainPowerStatus|IgnitionStatus|MovementStatus|InterBatteryVoltage|InterBatteryPercentage|GPSOdometer|GPSDataValidityStatus|PacketLiveOrStoredStatus|Battery Voltage|Battery Current|Battery SoC|Battery CapacityRemaining|Vehicle Speed| Vehicle Odometer|MotorRPM||VehicleMode|Gear Postion|CustomerCode#
-        return "^NLPR|353555072153311|1|${canFeed.currentLocation?.latitude}|${canFeed.currentLocation?.longitude}|850|083000|020823|2.3|34|5|1|1|1|3.9|23|149.3|1|1|62|-12.5|56|32|12|152|3451|2|0|100#"
+        return "^NLPR|353555072153311|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|850|083000|020823|2.3|34|5|1|1|1|3.9|23|149.3|1|1|62|-12.5|56|32|12|152|3451|2|0|100#"
 
     }
+
 
     /**
      * Default Mqtt android client connect callback
