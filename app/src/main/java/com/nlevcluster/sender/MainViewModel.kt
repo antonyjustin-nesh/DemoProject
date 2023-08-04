@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import logcat.LogPriority
 import logcat.logcat
+import java.io.PrintWriter
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -37,22 +38,21 @@ class MainViewModel @Inject constructor(
     fun sendData() {
         val scheduledExecutorService: ScheduledExecutorService =
             Executors.newSingleThreadScheduledExecutor()
-        scheduledExecutorService.scheduleWithFixedDelay(object : Runnable {
-            override fun run() {
-                viewModelScope.launch {
-                    canParseDao.getLastCanParseEntity().distinctUntilChanged().collectLatest {
-                        if (it != null) {
-                            logcat { "CanParseEntity from database $it" }
-                            //                                    val socket = java.net.Socket("ev.nesh.live", 7788)
-//                                    val outputStream = PrintWriter(socket.getOutputStream())
-//                                    outputStream.println(getDataString(canFeed))
-//                                    outputStream.flush()
-//                                    outputStream.close()
-//                                    socket.close()
+        scheduledExecutorService.scheduleWithFixedDelay({
+            viewModelScope.launch {
+                canParseDao.getLastCanParseEntity().distinctUntilChanged()
+                    .collectLatest { canFeed ->
+                        if (canFeed != null) {
+                            logcat { "CanParseEntity from database $canFeed" }
+                            val socket = java.net.Socket("ev.nesh.live", 7788)
+                            val outputStream = PrintWriter(socket.getOutputStream())
+                            outputStream.println(getDataString(canFeed))
+                            outputStream.flush()
+                            outputStream.close()
+                            socket.close()
                         }
                     }
 
-                }
             }
         }, 0, 10, TimeUnit.SECONDS)
     }
