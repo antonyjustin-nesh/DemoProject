@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface CanParseDao {
 
+    @Query(value = "SELECT * FROM can_parse ORDER BY id DESC LIMIT 1")
+    fun getLastCanParseEntity(): Flow<CanParseEntity?>
+
     @Query(value = "SELECT * FROM can_parse")
     fun observeAll(): Flow<List<CanParseEntity>>
 

@@ -1,6 +1,7 @@
 package com.nlevcluster.sender.database.di
 
 import com.nlevcluster.sender.database.EvDatabase
+import com.nlevcluster.sender.database.dao.CanParseDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -15,4 +16,10 @@ object DaoModule {
     fun providesLogDao(
         database: EvDatabase,
     ): LogDao = database.logDao()
+
+    @Provides
+    fun providesCanParseDao(
+        database: EvDatabase
+    ): CanParseDao = database.canParseDao()
+
 }

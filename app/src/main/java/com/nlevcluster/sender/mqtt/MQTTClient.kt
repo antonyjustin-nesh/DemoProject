@@ -8,6 +8,7 @@ import com.google.gson.Gson
 import com.nlevcluster.sender.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.nlevcluster.sender.database.LogType
+import com.nlevcluster.sender.database.dao.CanParseDao
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.logging.LogHelper
 import com.nlevcluster.sender.model.CanFeed
@@ -33,6 +34,7 @@ import javax.inject.Singleton
 class MQTTClient @Inject constructor(
     @ApplicationContext context: Context,
     private val gson: Gson,
+    private val canParseDao: CanParseDao,
 ) {
 
     @Inject
@@ -77,17 +79,15 @@ class MQTTClient @Inject constructor(
                                     true
                                 ) && data != null
                             ) {
-                                val canFeed =
-                                    gson.fromJson<CanParseEntity>(data, CanParseEntity::class.java)
                                 try {
-//                                    val socket = java.net.Socket("ev.nesh.live", 7788)
-//                                    val outputStream = PrintWriter(socket.getOutputStream())
-//                                    outputStream.println(getDataString(canFeed))
-//                                    outputStream.flush()
-//                                    outputStream.close()
-//                                    socket.close()
+                                    val canParseEntity =
+                                        gson.fromJson<CanParseEntity>(
+                                            data,
+                                            CanParseEntity::class.java
+                                        )
+                                    canParseDao.upsertCanParseData(canParseEntity)
                                 } catch (ex: Exception) {
-                                    Log.d("Exception", "Exception on launch $ex")
+                                    Log.d("Exception", "Exception on inserting the CanParseEntity to the database $ex")
                                 }
                             }
                         }
@@ -109,15 +109,7 @@ class MQTTClient @Inject constructor(
         }
     }
 
-    /**
-     * Generate tcpip protocol feed
-     */
-    fun getDataString(canParseEntity: CanParseEntity): String {
-//        ^NLPR|DeviceID|SequenceNumber|Lattitude|Longitude|Altitude|Time|Date|Speed|Heading|
-//        NoOfSat|MainPowerStatus|IgnitionStatus|MovementStatus|InterBatteryVoltage|InterBatteryPercentage|GPSOdometer|GPSDataValidityStatus|PacketLiveOrStoredStatus|Battery Voltage|Battery Current|Battery SoC|Battery CapacityRemaining|Vehicle Speed| Vehicle Odometer|MotorRPM||VehicleMode|Gear Postion|CustomerCode#
-        return "^NLPR|353555072153311|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|850|083000|020823|2.3|34|5|1|1|1|3.9|23|149.3|1|1|62|-12.5|56|32|12|152|3451|2|0|100#"
 
-    }
 
 
     /**

@@ -12,7 +12,7 @@ import kotlinx.datetime.Instant
  */
 @Entity(tableName = "can_parse")
 data class CanParseEntity(
-    @PrimaryKey(autoGenerate = true)
+    @PrimaryKey
     val id: Int = 0,
     val soc: Double,
     val range: Int,
@@ -20,11 +20,18 @@ data class CanParseEntity(
     val odometer: Double,
     val evMode: String,
     val rpm: Double,
+    val ignitionStatus: String,
+    val vehicleStatus: String,
+    val batteryVoltage: Double,
+    val batteryCurrent: Double,
+    val batteryCapacityRemaining: Double,
+    val batteryTotalCapacity: Double,
     @ColumnInfo(name = "gps_location")
     val gpsLocation: String,
     val latitude: Double,
     val longitude: Double,
     val accuracy: Double,
+    val altitude: Double,
     val gpsSpeed: Double,
     @ColumnInfo(name = "created_date")
     val createdDate: Long,
@@ -43,5 +50,12 @@ fun CanFeed.asEntity() = CanParseEntity(
     accuracy = currentLocation?.accuracy ?: 0.0,
     gpsSpeed = currentLocation?.speed ?: 0.0,
     createdDate = Clock.System.now().toEpochMilliseconds(),
+    altitude = currentLocation?.altitude ?: 0.0,
+    ignitionStatus = ignition.name,
+    vehicleStatus = ignition.name,
+    batteryCurrent = battery.current,
+    batteryVoltage = battery.volt,
+    batteryCapacityRemaining = battery.remainingPercent.toDouble(),
+    batteryTotalCapacity = battery.fullCapacity,
 )
 
