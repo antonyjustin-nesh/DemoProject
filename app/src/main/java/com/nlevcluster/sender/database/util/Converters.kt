@@ -1,15 +1,15 @@
 package com.nlevcluster.sender.database.util
 
 import androidx.room.TypeConverter
-import com.nlevcluster.sender.model.EvMode
-import kotlinx.datetime.Instant
 import com.nlevcluster.sender.database.LogType
+import com.nlevcluster.sender.model.EvMode
 import dagger.Module
 import dagger.hilt.InstallIn
-import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.components.SingletonComponent
+import kotlinx.datetime.Instant
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
 
 class InstantConverter {
     @TypeConverter
@@ -41,8 +41,8 @@ class EvModeConverter {
 @InstallIn(SingletonComponent::class)
 object Util {
 
-    private val dateFormat = SimpleDateFormat("DDMMYY")
-    private val timeFormat = SimpleDateFormat("HHmmss")
+    private val dateFormat = SimpleDateFormat("ddMMyy", Locale.getDefault())
+    private val timeFormat = SimpleDateFormat("HHmmss", Locale.getDefault())
 
     fun getTimeFromLong(dtLong: Long): String {
         return timeFormat.format(Date(dtLong))

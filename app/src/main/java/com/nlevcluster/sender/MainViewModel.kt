@@ -8,6 +8,7 @@ import com.nlevcluster.sender.database.util.Util
 import dagger.hilt.android.lifecycle.HiltViewModel
 import com.nlevcluster.sender.logging.LogHelper
 import com.nlevcluster.sender.model.Ignition
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -25,6 +26,11 @@ class MainViewModel @Inject constructor(
     private val canParseDao: CanParseDao,
 ) : ViewModel() {
 
+    /**
+     * Logging the message to the database
+     *
+     * @param message
+     */
     fun log(message: String) {
         logHelper.log(message = message)
         logcat(LogPriority.INFO, "MainViewModel") {
@@ -33,39 +39,41 @@ class MainViewModel @Inject constructor(
     }
 
     /**
-     * Send data to backend every 10 seconds
+     * Send data to backend every 10 seconds on background
      */
     fun sendData() {
         val scheduledExecutorService: ScheduledExecutorService =
             Executors.newSingleThreadScheduledExecutor()
         scheduledExecutorService.scheduleWithFixedDelay({
-            viewModelScope.launch {
-                canParseDao.getLastCanParseEntity().distinctUntilChanged()
-                    .collectLatest { canFeed ->
-                        if (canFeed != null) {
-                            logcat { "CanParseEntity from database $canFeed" }
-                            val socket = java.net.Socket("ev.nesh.live", 7788)
-                            val outputStream = PrintWriter(socket.getOutputStream())
-                            outputStream.println(getDataString(canFeed))
-                            outputStream.flush()
-                            outputStream.close()
-                            socket.close()
-                        }
+            viewModelScope.launch(Dispatchers.IO) {
+                val canFeed = canParseDao.getLastCanParseEntity()
+                if (canFeed != null) {
+                    log("CanParseEntity from database $canFeed")
+                    viewModelScope.launch(Dispatchers.IO) {
+                        val socket = java.net.Socket("qa.nesh.live", 7788)
+                        val outputStream = PrintWriter(socket.getOutputStream())
+                        outputStream.println(getDataString(canFeed))
+                        outputStream.flush()
+                        outputStream.close()
+                        socket.close()
                     }
-
+                }
             }
         }, 0, 10, TimeUnit.SECONDS)
     }
 
     /**
-     * Generate tcpip protocol feed
+     * Generate tcp/ip protocol feed
      */
-    fun getDataString(canParseEntity: CanParseEntity): String {
+//    for production
+//    353555072153311
+
+    private fun getDataString(canParseEntity: CanParseEntity): String {
 //        ^NLPR|DeviceID|SequenceNumber|Latitude|Longitude|Altitude|Time|Date|Speed|Heading|
 //        NoOfSat|MainPowerStatus|IgnitionStatus|MovementStatus|VehicleStatus|InterBatteryVoltage|InterBatteryPercentage|GPSOdometer
 //        |GPSDataValidityStatus|PacketLiveOrStoredStatus|Battery Voltage|Battery Current|Battery SoC|Battery CapacityRemaining
 //        |Vehicle Speed| Vehicle Odometer|MotorRPM||VehicleMode|Gear Postion|CustomerCode#
-        return "^NLPR|353555072153311|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|" +
+        return "^NLPR|350544503177043|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|" +
                 "${canParseEntity.altitude}|${Util.getTimeFromLong(canParseEntity.createdDate)}|" +
                 "${Util.getDateFromLong(canParseEntity.createdDate)}|" +
                 "${canParseEntity.speed}|34|5|1|${returnIgnitionStatus(canParseEntity.ignitionStatus)}|1|" +

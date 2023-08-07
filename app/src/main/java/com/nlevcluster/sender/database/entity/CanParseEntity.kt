@@ -12,7 +12,7 @@ import kotlinx.datetime.Instant
  */
 @Entity(tableName = "can_parse")
 data class CanParseEntity(
-    @PrimaryKey
+    @PrimaryKey(autoGenerate = true)
     val id: Int = 0,
     val soc: Double,
     val range: Int,

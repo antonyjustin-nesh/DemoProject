@@ -4,6 +4,8 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.dagger.hilt.android")
+    id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 android {
@@ -85,6 +87,14 @@ dependencies {
 
     //Gson
     implementation("com.google.code.gson:gson:2.10.1")
+
+    //Firebase integration
+    //BOM
+    implementation(platform("com.google.firebase:firebase-bom:32.2.2"))
+    //Analytics
+    implementation("com.google.firebase:firebase-analytics-ktx")
+    //Crashlytics
+    implementation("com.google.firebase:firebase-crashlytics-ktx")
 }
 
 // Allow references to generated code

@@ -28,15 +28,16 @@ class MainActivity : AppCompatActivity() {
      * Connecting MQTT client
      *
      */
-    fun connectMqttClient() {
+    private fun connectMqttClient() {
+        viewModel.log("Connecting MQTT client to the server")
         mqttClient.connect("", "", object : IMqttActionListener {
             override fun onSuccess(asyncActionToken: IMqttToken?) {
-                logcat { "MQTT client connection succeeded" }
+                viewModel.log("MQTT client connection succeeded")
                 topicSubscription(SUBSCRIBE_PROCESSOR_TOPIC)
             }
 
             override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                logcat { "MQTT client connection failure with exception $exception" }
+                viewModel.log("MQTT client connection failure with exception $exception")
             }
         })
     }
@@ -49,7 +50,7 @@ class MainActivity : AppCompatActivity() {
                 1,
                 object : IMqttActionListener {
                     override fun onSuccess(asyncActionToken: IMqttToken?) {
-                        logcat { "MQTT subscription successful with topic is the $topic" }
+                        viewModel.log("MQTT subscription successful with topic is the $topic")
                     }
 
                     override fun onFailure(

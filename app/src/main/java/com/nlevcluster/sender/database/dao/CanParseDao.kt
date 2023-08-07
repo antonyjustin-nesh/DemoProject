@@ -1,5 +1,6 @@
 package com.nlevcluster.sender.database.dao
 
+import androidx.lifecycle.LiveData
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
@@ -10,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
 interface CanParseDao {
 
     @Query(value = "SELECT * FROM can_parse ORDER BY id DESC LIMIT 1")
-    fun getLastCanParseEntity(): Flow<CanParseEntity?>
+    fun getLastCanParseEntity(): CanParseEntity?
 
     @Query(value = "SELECT * FROM can_parse")
     fun observeAll(): Flow<List<CanParseEntity>>
