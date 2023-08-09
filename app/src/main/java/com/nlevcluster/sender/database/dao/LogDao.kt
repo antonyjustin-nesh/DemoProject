@@ -14,4 +14,7 @@ interface LogDao {
 
     @Query("SELECT * FROM log ORDER BY id DESC")
     fun observeAll(): PagingSource<Int, LogEntity>
+
+    @Query("SELECT * FROM log ORDER BY id DESC")
+    fun getAll(): List<LogEntity>
 }

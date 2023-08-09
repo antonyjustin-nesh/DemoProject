@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">NL-Sender</string>
+    <string name="share_logs">Share Logs</string>
 </resources>

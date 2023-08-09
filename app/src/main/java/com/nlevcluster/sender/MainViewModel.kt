@@ -3,6 +3,7 @@ package com.nlevcluster.sender
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nlevcluster.sender.database.dao.CanParseDao
+import com.nlevcluster.sender.database.dao.LogDao
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.database.util.Util
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import logcat.LogPriority
 import logcat.logcat
+import java.io.File
 import java.io.PrintWriter
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -24,6 +26,7 @@ import javax.inject.Inject
 class MainViewModel @Inject constructor(
     private val logHelper: LogHelper,
     private val canParseDao: CanParseDao,
+    private val logDao: LogDao,
 ) : ViewModel() {
 
     /**
@@ -97,6 +100,22 @@ class MainViewModel @Inject constructor(
             Ignition.PARK.name -> "0"
             Ignition.DRIVE.name, Ignition.NEUTRAL.name, Ignition.REVERSE.name -> "1"
             else -> "0"
+        }
+    }
+
+    /**
+     * Getting the logs from the database and writing on the file
+     *
+     * @param file
+     */
+    fun shareWriteableFile(file: File) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val logWhole = logDao.getAll()
+            file.printWriter().use { out ->
+                logWhole.forEach {
+                    out.println(it.toString())
+                }
+            }
         }
     }
 

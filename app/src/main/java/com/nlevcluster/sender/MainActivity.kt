@@ -1,13 +1,19 @@
 package com.nlevcluster.sender
 
+import android.content.Intent
 import android.os.Bundle
+import android.widget.Button
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
+import com.nlevcluster.sender.database.util.Util
 import com.nlevcluster.sender.mqtt.MQTTClient
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.datetime.Clock
 import logcat.logcat
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttToken
+import java.io.File
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -17,11 +23,19 @@ class MainActivity : AppCompatActivity() {
     @Inject
     lateinit var mqttClient: MQTTClient
 
+    companion object {
+        const val SUBSCRIBE_TOPIC = "collector/cloud"
+        const val SUBSCRIBE_PROCESSOR_TOPIC = "processor/cloud"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         connectMqttClient()
         viewModel.sendData()
+        findViewById<Button>(R.id.shareLogs).setOnClickListener {
+            shareLogFile()
+        }
     }
 
     /**
@@ -71,8 +85,35 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    companion object {
-        const val SUBSCRIBE_TOPIC = "collector/cloud"
-        const val SUBSCRIBE_PROCESSOR_TOPIC = "processor/cloud"
+    /**
+     * Share logs files for debugging purpose
+     *
+     */
+    private fun shareLogFile() {
+        val file = File(
+            this.cacheDir.absolutePath + "/candata-${
+                Util.getDateFromLong(
+                    Clock.System.now().toEpochMilliseconds()
+                )
+            }.txt"
+        );
+        if (!file.exists()) {
+            file.createNewFile()
+        }
+        viewModel.shareWriteableFile(file)
+        val emailIntent = Intent(Intent.ACTION_SEND)
+        emailIntent.type = "text/plain"
+        emailIntent.putExtra(Intent.EXTRA_EMAIL, arrayOf("support@nesh.live"))
+        emailIntent.putExtra(Intent.EXTRA_SUBJECT, "Can Data")
+        emailIntent.putExtra(Intent.EXTRA_TEXT, "Getting can data")
+        emailIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val uri = FileProvider.getUriForFile(
+            this,
+            this.applicationContext.packageName + ".provider",
+            file
+        );
+        emailIntent.putExtra(Intent.EXTRA_STREAM, uri)
+        startActivity(Intent.createChooser(emailIntent, ""))
     }
+
 }
