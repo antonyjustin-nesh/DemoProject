@@ -11,6 +11,7 @@ data class CanFeed(
     val ignition: Ignition,
     val stand: Stand,
     val evMode: EvMode,
+    val headLight: HeadLight,
     val gps: String = "",
     var currentLocation: LocationInfo? = null,
     val usbState: UsbState?,
