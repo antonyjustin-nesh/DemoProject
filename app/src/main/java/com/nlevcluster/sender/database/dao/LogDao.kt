@@ -17,4 +17,7 @@ interface LogDao {
 
     @Query("SELECT * FROM log ORDER BY id DESC")
     fun getAll(): List<LogEntity>
+
+    @Query("SELECT * FROM log  WHERE created_date >= :todayDate ORDER BY id DESC")
+    fun getTodaysData(todayDate:Long): List<LogEntity>
 }

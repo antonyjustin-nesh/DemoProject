@@ -8,8 +8,10 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.datetime.Instant
 import java.text.SimpleDateFormat
+import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 class InstantConverter {
     @TypeConverter
@@ -41,14 +43,16 @@ class EvModeConverter {
 @InstallIn(SingletonComponent::class)
 object Util {
 
-    private val dateFormat = SimpleDateFormat("ddMMyy", Locale.getDefault())
-    private val timeFormat = SimpleDateFormat("HHmmss", Locale.getDefault())
+    private var dateFormat = SimpleDateFormat("ddMMyy", Locale.getDefault())
+    private var timeFormat = SimpleDateFormat("HHmmss", Locale.getDefault())
 
     fun getTimeFromLong(dtLong: Long): String {
+        timeFormat.timeZone = TimeZone.getTimeZone(ZoneId.of("UTC"))
         return timeFormat.format(Date(dtLong))
     }
 
     fun getDateFromLong(dtLong: Long): String {
+        dateFormat.timeZone = TimeZone.getTimeZone(ZoneId.of("UTC"))
         return dateFormat.format(Date(dtLong))
     }
 

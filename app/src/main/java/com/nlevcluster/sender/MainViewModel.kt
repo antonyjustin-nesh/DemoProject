@@ -2,21 +2,22 @@ package com.nlevcluster.sender
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.database.dao.CanParseDao
 import com.nlevcluster.sender.database.dao.LogDao
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.database.util.Util
-import dagger.hilt.android.lifecycle.HiltViewModel
 import com.nlevcluster.sender.logging.LogHelper
 import com.nlevcluster.sender.model.Ignition
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import logcat.LogPriority
 import logcat.logcat
 import java.io.File
 import java.io.PrintWriter
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -76,13 +77,16 @@ class MainViewModel @Inject constructor(
 //        NoOfSat|MainPowerStatus|IgnitionStatus|MovementStatus|VehicleStatus|InterBatteryVoltage|InterBatteryPercentage|GPSOdometer
 //        |GPSDataValidityStatus|PacketLiveOrStoredStatus|Battery Voltage|Battery Current|Battery SoC|Battery CapacityRemaining
 //        |Vehicle Speed| Vehicle Odometer|MotorRPM||VehicleMode|Gear Postion|CustomerCode#
-        return "^NLPR|350544503177043|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|" +
-                "${canParseEntity.altitude}|${Util.getTimeFromLong(canParseEntity.createdDate)}|" +
-                "${Util.getDateFromLong(canParseEntity.createdDate)}|" +
-                "${canParseEntity.speed}|34|5|1|${returnIgnitionStatus(canParseEntity.ignitionStatus)}|1|" +
-                "${returnVehicleStatus(canParseEntity.ignitionStatus)}|3.9|${canParseEntity.soc}|" +
-                "${canParseEntity.odometer}|1|1|${canParseEntity.batteryVoltage}|${canParseEntity.batteryCurrent}|" +
-                "${canParseEntity.soc}|32|${canParseEntity.speed}|152|${canParseEntity.rpm}|2|0|100#"
+        val dataString =
+            "^NLPR|350544503177043|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|" +
+                    "${canParseEntity.altitude}|${Util.getTimeFromLong(canParseEntity.createdDate)}|" +
+                    "${Util.getDateFromLong(canParseEntity.createdDate)}|" +
+                    "${canParseEntity.speed}|34|5|1|${returnIgnitionStatus(canParseEntity.ignitionStatus)}|1|" +
+                    "${returnVehicleStatus(canParseEntity.ignitionStatus)}|3.9|${canParseEntity.soc}|" +
+                    "${canParseEntity.odometer}|1|1|${canParseEntity.batteryVoltage}|${canParseEntity.batteryCurrent}|" +
+                    "${canParseEntity.soc}|32|${canParseEntity.speed}|152|${canParseEntity.rpm}|2|0|100#"
+        logHelper.log(LogType.INFO, "Sending data to backend $dataString")
+        return dataString
     }
 
     private fun returnVehicleStatus(status: String): String {
@@ -110,9 +114,12 @@ class MainViewModel @Inject constructor(
      */
     fun shareWriteableFile(file: File) {
         viewModelScope.launch(Dispatchers.IO) {
-            val logWhole = logDao.getAll()
+            val logDate = LocalDate.now()
+            val startOfDate = logDate.atStartOfDay()
+            val dateLong = startOfDate.atZone(ZoneId.systemDefault()).toInstant().epochSecond
+            val logToday = logDao.getTodaysData(dateLong)
             file.printWriter().use { out ->
-                logWhole.forEach {
+                logToday.forEach {
                     out.println(it.toString())
                 }
             }

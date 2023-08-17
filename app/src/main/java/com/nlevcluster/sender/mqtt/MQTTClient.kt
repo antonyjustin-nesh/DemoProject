@@ -69,7 +69,7 @@ class MQTTClient @Inject constructor(
                 override fun run() {
                     try {
                         data = message?.toString()
-                        logcat { "Received data $data" }
+                        logHelper.log(LogType.INFO, "Received data $data")
                         /**
                          * Fetching the processed data from the processor application to transmit to backend as packets
                          */
@@ -87,7 +87,10 @@ class MQTTClient @Inject constructor(
                                         )
                                     canParseDao.upsertCanParseData(canParseEntity)
                                 } catch (ex: Exception) {
-                                    Log.d("Exception", "Exception on inserting the CanParseEntity to the database $ex")
+                                    Log.d(
+                                        "Exception",
+                                        "Exception on inserting the CanParseEntity to the database $ex"
+                                    )
                                 }
                             }
                         }
@@ -108,8 +111,6 @@ class MQTTClient @Inject constructor(
             logHelper.log(LogType.INFO, "MQTT message delivery complete")
         }
     }
-
-
 
 
     /**

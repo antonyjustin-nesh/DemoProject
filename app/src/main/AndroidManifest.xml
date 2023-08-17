@@ -16,6 +16,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Sender"
         tools:targetApi="31">
+        <service
+            android:name=".service.DataSendService"
+            android:enabled="true"
+            android:exported="true"></service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.provider"
@@ -25,6 +30,7 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/provider_paths" />
         </provider>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -35,6 +41,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
         <service android:name="org.eclipse.paho.android.service.MqttService" />
     </application>
 

@@ -15,4 +15,5 @@ data class CanFeed(
     val gps: String = "",
     var currentLocation: LocationInfo? = null,
     val usbState: UsbState?,
+    val createdDate: Long,
 )

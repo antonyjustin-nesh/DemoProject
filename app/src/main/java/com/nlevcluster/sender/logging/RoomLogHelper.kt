@@ -7,6 +7,7 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.database.dao.LogDao
+import logcat.logcat
 import javax.inject.Inject
 
 class RoomLogHelper @Inject constructor(
@@ -16,6 +17,7 @@ class RoomLogHelper @Inject constructor(
     private val externalScope: CoroutineScope = CoroutineScope(SupervisorJob())
 
     override fun log(type: LogType, message: String) {
+        logcat { message }
         externalScope.launch {
             logDao.insertLog(
                 LogEntity(
