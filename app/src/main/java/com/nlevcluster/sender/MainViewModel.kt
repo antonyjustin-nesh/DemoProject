@@ -54,12 +54,19 @@ class MainViewModel @Inject constructor(
                 if (canFeed != null) {
                     log("CanParseEntity from database $canFeed")
                     viewModelScope.launch(Dispatchers.IO) {
-                        val socket = java.net.Socket("qa.nesh.live", 7788)
-                        val outputStream = PrintWriter(socket.getOutputStream())
-                        outputStream.println(getDataString(canFeed))
-                        outputStream.flush()
-                        outputStream.close()
-                        socket.close()
+                        try {
+                            val socket = java.net.Socket("qa.nesh.live", 7788)
+                            val outputStream = PrintWriter(socket.getOutputStream())
+                            outputStream.println(getDataString(canFeed))
+                            outputStream.flush()
+                            outputStream.close()
+                            socket.close()
+                        } catch (ex: Exception) {
+                            logHelper.log(
+                                LogType.EXCEPTION,
+                                "Exception on sending data to the backend using socket $ex"
+                            )
+                        }
                     }
                 }
             }
