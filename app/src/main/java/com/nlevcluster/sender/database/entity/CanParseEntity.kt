@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.nlevcluster.sender.model.CanFeed
+import com.nlevcluster.sender.model.Ignition
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 
@@ -20,6 +21,7 @@ data class CanParseEntity(
     val odometer: Double,
     val evMode: String,
     val rpm: Double,
+    val ignition: String,
     val ignitionStatus: String,
     val vehicleStatus: String,
     val batteryVoltage: Double,
@@ -51,11 +53,12 @@ fun CanFeed.asEntity() = CanParseEntity(
     gpsSpeed = currentLocation?.speed ?: 0.0,
     createdDate = createdDate,
     altitude = currentLocation?.altitude ?: 0.0,
-    ignitionStatus = ignition.name,
+    ignitionStatus = ignitionStatus.name,
     vehicleStatus = ignition.name,
     batteryCurrent = battery.current,
     batteryVoltage = battery.volt,
     batteryCapacityRemaining = battery.remainingPercent.toDouble(),
     batteryTotalCapacity = battery.fullCapacity,
+    ignition = ignition.name
 )
 

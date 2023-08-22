@@ -70,7 +70,7 @@ class MainViewModel @Inject constructor(
                     }
                 }
             }
-        }, 0, 10, TimeUnit.SECONDS)
+        }, 0, 30, TimeUnit.SECONDS)
     }
 
     /**

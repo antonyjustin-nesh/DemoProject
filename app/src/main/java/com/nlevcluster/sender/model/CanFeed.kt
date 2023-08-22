@@ -9,6 +9,7 @@ data class CanFeed(
     val odometer: Odometer,
     val indicator: Indicator,
     val ignition: Ignition,
+    val ignitionStatus: IgnitionStatus,
     val stand: Stand,
     val evMode: EvMode,
     val headLight: HeadLight,
