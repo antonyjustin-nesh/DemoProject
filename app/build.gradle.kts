@@ -17,13 +17,13 @@ android {
         minSdk = 26
         targetSdk = 33
         versionCode = 1
-        versionName = "1.1"
+        versionName = "1.3"
 
         buildConfigField("String", "SERVER_URI", "\"tcp://0.0.0.0:1883\"")
         buildConfigField("String", "CLIENT_ID", "\"nlevcluster-sender\"")
         buildConfigField("String", "MQTT_USERNAME", "\"\"")
         buildConfigField("String", "MQTT_PASSWORD", "\"\"")
-        buildConfigField("boolean","IS_PRODUCTION", "false")
+        buildConfigField("boolean","IS_PRODUCTION", "true")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

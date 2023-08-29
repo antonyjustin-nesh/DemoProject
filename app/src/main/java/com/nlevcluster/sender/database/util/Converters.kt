@@ -7,6 +7,7 @@ import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.datetime.Instant
+import logcat.logcat
 import java.text.SimpleDateFormat
 import java.time.ZoneId
 import java.util.Date
@@ -48,12 +49,16 @@ object Util {
 
     fun getTimeFromLong(dtLong: Long): String {
         timeFormat.timeZone = TimeZone.getTimeZone(ZoneId.of("UTC"))
-        return timeFormat.format(Date(dtLong))
+        val time = timeFormat.format(Date(dtLong))
+        logcat { "time converted $time" }
+        return time
     }
 
     fun getDateFromLong(dtLong: Long): String {
         dateFormat.timeZone = TimeZone.getTimeZone(ZoneId.of("UTC"))
-        return dateFormat.format(Date(dtLong))
+        val date = dateFormat.format(Date(dtLong))
+        logcat { "date converted $date" }
+        return date
     }
 
 }

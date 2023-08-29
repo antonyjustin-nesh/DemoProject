@@ -55,7 +55,9 @@ class MainViewModel @Inject constructor(
                     log("CanParseEntity from database $canFeed")
                     viewModelScope.launch(Dispatchers.IO) {
                         try {
-                            val socket = java.net.Socket("qa.nesh.live", 7788)
+                            val url =
+                                if (BuildConfig.IS_PRODUCTION) "ev.nesh.live" else "qa.nesh.live"
+                            val socket = java.net.Socket(url, 7788)
                             val outputStream = PrintWriter(socket.getOutputStream())
                             outputStream.println(getDataString(canFeed))
                             outputStream.flush()
@@ -84,8 +86,10 @@ class MainViewModel @Inject constructor(
 //        NoOfSat|MainPowerStatus|IgnitionStatus|MovementStatus|VehicleStatus|InterBatteryVoltage|InterBatteryPercentage|GPSOdometer
 //        |GPSDataValidityStatus|PacketLiveOrStoredStatus|Battery Voltage|Battery Current|Battery SoC|Battery CapacityRemaining
 //        |Vehicle Speed| Vehicle Odometer|MotorRPM||VehicleMode|Gear Postion|CustomerCode#
+        val imei = if (BuildConfig.IS_PRODUCTION) "353555072153311" else "350544503177043"
+        logcat { "CanParseEntity on data String $canParseEntity" }
         val dataString =
-            "^NLPR|350544503177043|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|" +
+            "^NLPR|$imei|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|" +
                     "${canParseEntity.altitude}|${Util.getTimeFromLong(canParseEntity.createdDate)}|" +
                     "${Util.getDateFromLong(canParseEntity.createdDate)}|" +
                     "${canParseEntity.speed}|34|5|1|${returnIgnitionStatus(canParseEntity.ignitionStatus)}|1|" +
