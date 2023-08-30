@@ -3,6 +3,7 @@ package com.nlevcluster.sender
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
+import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
@@ -33,9 +34,21 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         connectMqttClient()
         viewModel.sendData()
+
         findViewById<Button>(R.id.shareLogs).setOnClickListener {
             shareLogFile()
         }
+
+        var version = BuildConfig.VERSION_NAME
+        if (BuildConfig.IS_PRODUCTION) {
+            version += when(BuildConfig.TABLET) {
+                "4123" -> "Prod Tablet 1"
+                "3283" -> "Prod Tablet 2"
+                else -> "Prod Tablet 3"
+            }
+        }
+        findViewById<TextView>(R.id.version).text = version
+
     }
 
     /**

@@ -86,8 +86,14 @@ class MainViewModel @Inject constructor(
 //        NoOfSat|MainPowerStatus|IgnitionStatus|MovementStatus|VehicleStatus|InterBatteryVoltage|InterBatteryPercentage|GPSOdometer
 //        |GPSDataValidityStatus|PacketLiveOrStoredStatus|Battery Voltage|Battery Current|Battery SoC|Battery CapacityRemaining
 //        |Vehicle Speed| Vehicle Odometer|MotorRPM||VehicleMode|Gear Postion|CustomerCode#
-        val imei = if (BuildConfig.IS_PRODUCTION) "353555072153311" else "350544503177043"
-        logcat { "CanParseEntity on data String $canParseEntity" }
+        val imei = if (BuildConfig.IS_PRODUCTION) {
+            when (BuildConfig.TABLET) {
+                "3283" -> "353555072721125"
+                "4123" -> "353555072729524"
+                else -> "353555072153311"
+            }
+        } else "350544503177043"
+        log("CanParseEntity on data String $canParseEntity")
         val dataString =
             "^NLPR|$imei|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|" +
                     "${canParseEntity.altitude}|${Util.getTimeFromLong(canParseEntity.createdDate)}|" +
