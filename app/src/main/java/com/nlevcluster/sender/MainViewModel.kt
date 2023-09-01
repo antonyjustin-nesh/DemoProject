@@ -8,6 +8,7 @@ import com.nlevcluster.sender.database.dao.LogDao
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.database.util.Util
 import com.nlevcluster.sender.logging.LogHelper
+import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.Ignition
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -93,6 +94,19 @@ class MainViewModel @Inject constructor(
                 else -> "353555072153311"
             }
         } else "350544503177043"
+        //Echo/Power/Sports
+        val gearPos = when (canParseEntity.evMode) {
+            EvMode.SPORTS.mode -> "1"
+            EvMode.POWER.mode -> "2"
+            else -> "0"
+        }
+        //Vehicle Mode P/N/D/R
+        val vehicleStatus = when (canParseEntity.ignition) {
+            Ignition.REVERSE.name -> "1"
+            Ignition.DRIVE.name -> "4"
+            Ignition.NEUTRAL.name -> "2"
+            else -> "0"
+        }
         log("CanParseEntity on data String $canParseEntity")
         val dataString =
             "^NLPR|$imei|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|" +
@@ -101,7 +115,7 @@ class MainViewModel @Inject constructor(
                     "${canParseEntity.speed}|34|5|1|${returnIgnitionStatus(canParseEntity.ignitionStatus)}|1|" +
                     "${returnVehicleStatus(canParseEntity.ignitionStatus)}|3.9|${canParseEntity.soc}|" +
                     "${canParseEntity.odometer}|1|1|${canParseEntity.batteryVoltage}|${canParseEntity.batteryCurrent}|" +
-                    "${canParseEntity.soc}|32|${canParseEntity.speed}|152|${canParseEntity.rpm}|2|0|100#"
+                    "${canParseEntity.soc}|32|${canParseEntity.speed}|${canParseEntity.odometer}|${canParseEntity.rpm}|$vehicleStatus|$gearPos|100#"
         logHelper.log(LogType.INFO, "Sending data to backend $dataString")
         return dataString
     }
