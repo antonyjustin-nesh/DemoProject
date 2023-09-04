@@ -9,6 +9,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import com.nlevcluster.sender.database.util.Util
 import com.nlevcluster.sender.mqtt.MQTTClient
+import com.nlevcluster.sender.service.DataSendService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.datetime.Clock
 import logcat.logcat
@@ -33,7 +34,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         connectMqttClient()
-        viewModel.sendData()
+
+        val intent = Intent(this, DataSendService::class.java)
+        startForegroundService(intent)
+
 
         findViewById<Button>(R.id.shareLogs).setOnClickListener {
             shareLogFile()
@@ -41,7 +45,7 @@ class MainActivity : AppCompatActivity() {
 
         var version = BuildConfig.VERSION_NAME
         if (BuildConfig.IS_PRODUCTION) {
-            version += when(BuildConfig.TABLET) {
+            version += when (BuildConfig.TABLET) {
                 "4123" -> " Prod Tablet 1"
                 "3283" -> " Prod Tablet 2"
                 else -> " Prod Tablet 3"
