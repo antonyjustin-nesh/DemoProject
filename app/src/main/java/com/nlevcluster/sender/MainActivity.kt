@@ -42,9 +42,9 @@ class MainActivity : AppCompatActivity() {
         var version = BuildConfig.VERSION_NAME
         if (BuildConfig.IS_PRODUCTION) {
             version += when(BuildConfig.TABLET) {
-                "4123" -> "Prod Tablet 1"
-                "3283" -> "Prod Tablet 2"
-                else -> "Prod Tablet 3"
+                "4123" -> " Prod Tablet 1"
+                "3283" -> " Prod Tablet 2"
+                else -> " Prod Tablet 3"
             }
         }
         findViewById<TextView>(R.id.version).text = version

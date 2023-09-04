@@ -31,6 +31,10 @@ class MainViewModel @Inject constructor(
     private val logDao: LogDao,
 ) : ViewModel() {
 
+    private var ignitionOff = true
+    private var count = 0
+    private var timing = 0
+
     /**
      * Logging the message to the database
      *
@@ -44,7 +48,7 @@ class MainViewModel @Inject constructor(
     }
 
     /**
-     * Send data to backend every 10 seconds on background
+     * Send data to backend every 30 seconds on background when ignition is ON and every 10 minutes when ignition is OFF
      */
     fun sendData() {
         val scheduledExecutorService: ScheduledExecutorService =
@@ -54,26 +58,44 @@ class MainViewModel @Inject constructor(
                 val canFeed = canParseDao.getLastCanParseEntity()
                 if (canFeed != null) {
                     log("CanParseEntity from database $canFeed")
-                    viewModelScope.launch(Dispatchers.IO) {
-                        try {
-                            val url =
-                                if (BuildConfig.IS_PRODUCTION) "ev.nesh.live" else "qa.nesh.live"
-                            val socket = java.net.Socket(url, 7788)
-                            val outputStream = PrintWriter(socket.getOutputStream())
-                            outputStream.println(getDataString(canFeed))
-                            outputStream.flush()
-                            outputStream.close()
-                            socket.close()
-                        } catch (ex: Exception) {
-                            logHelper.log(
-                                LogType.EXCEPTION,
-                                "Exception on sending data to the backend using socket $ex"
-                            )
+                    if (canFeed.ignitionStatus == "ON") {
+                        //Resetting values back to 0 once the ignition is ON
+                        ignitionOff = false
+                        count = 0
+                        timing = 0
+                        sendDataToBackEnd(canFeed)
+                    } else if (canFeed.ignitionStatus == "OFF") {
+                        ignitionOff = true
+                        if (count == 0 && (timing / 60 == 10 || timing / 60 == 0)) {
+                            count += 1
+                            timing += 30
+                            sendDataToBackEnd(canFeed)
                         }
                     }
                 }
             }
         }, 0, 30, TimeUnit.SECONDS)
+    }
+
+    //Send Data to backend
+    private fun sendDataToBackEnd(canFeed: CanParseEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val url =
+                    if (BuildConfig.IS_PRODUCTION) "ev.nesh.live" else "qa.nesh.live"
+                val socket = java.net.Socket(url, 7788)
+                val outputStream = PrintWriter(socket.getOutputStream())
+                outputStream.println(getDataString(canFeed))
+                outputStream.flush()
+                outputStream.close()
+                socket.close()
+            } catch (ex: Exception) {
+                logHelper.log(
+                    LogType.EXCEPTION,
+                    "Exception on sending data to the backend using socket $ex"
+                )
+            }
+        }
     }
 
     /**

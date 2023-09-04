@@ -17,7 +17,7 @@ android {
         minSdk = 26
         targetSdk = 33
         versionCode = 1
-        versionName = "1.5"
+        versionName = "1.6"
 
         buildConfigField("String", "SERVER_URI", "\"tcp://0.0.0.0:1883\"")
         buildConfigField("String", "CLIENT_ID", "\"nlevcluster-sender\"")
@@ -25,8 +25,8 @@ android {
         buildConfigField("String", "MQTT_PASSWORD", "\"\"")
         buildConfigField("boolean", "IS_PRODUCTION", "true")
 //        buildConfigField("String", "TABLET", "\"4123\"")
-        buildConfigField("String", "TABLET", "\"3283\"")
-//        buildConfigField("String", "TABLET", "\"3311\"")
+//        buildConfigField("String", "TABLET", "\"3283\"")
+        buildConfigField("String", "TABLET", "\"3311\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
