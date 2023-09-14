@@ -61,6 +61,7 @@ dependencies {
     implementation("com.google.android.material:material:1.8.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.activity:activity-ktx:1.7.2")
+    implementation(files("libs\\serviceLibrary-release.aar"))
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
@@ -71,7 +72,9 @@ dependencies {
 // MQTT
     val mqttClient = "1.2.5"
     val mqttService = "1.1.1"
-    implementation("org.eclipse.paho:org.eclipse.paho.android.service:$mqttService")
+    val timber = "5.0.1"
+    implementation("com.jakewharton.timber:timber:$timber")
+//    implementation("org.eclipse.paho:org.eclipse.paho.android.service:$mqttService")
     implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:$mqttClient")
 
 //    Room

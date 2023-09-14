@@ -6,19 +6,17 @@ import android.os.Looper
 import android.util.Log
 import com.google.gson.Gson
 import com.nlevcluster.sender.BuildConfig
-import dagger.hilt.android.qualifiers.ApplicationContext
 import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.database.dao.CanParseDao
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.logging.LogHelper
-import com.nlevcluster.sender.model.CanFeed
+import dagger.hilt.android.qualifiers.ApplicationContext
+import info.mqtt.android.service.Ack
+import info.mqtt.android.service.MqttAndroidClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import logcat.logcat
-import org.eclipse.paho.android.service.MqttAndroidClient
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
 import org.eclipse.paho.client.mqttv3.IMqttToken
@@ -26,7 +24,6 @@ import org.eclipse.paho.client.mqttv3.MqttCallback
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
-import java.io.PrintWriter
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,7 +38,7 @@ class MQTTClient @Inject constructor(
     lateinit var logHelper: LogHelper
 
     private val TAG = "MQTT CLIENT"
-    val mqttAndroidClient = MqttAndroidClient(context, SERVER_URI, CLIENT_ID)
+    val mqttAndroidClient = MqttAndroidClient(context, SERVER_URI, CLIENT_ID, Ack.AUTO_ACK)
     var handler = Handler(Looper.getMainLooper())
     val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
