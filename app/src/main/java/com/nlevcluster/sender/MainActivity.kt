@@ -7,10 +7,15 @@ import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.lifecycle.lifecycleScope
 import com.nlevcluster.sender.database.util.Util
 import com.nlevcluster.sender.mqtt.MQTTClient
 import com.nlevcluster.sender.service.DataSendService
+import com.nlevcluster.sender.util.CollectLogBroadcastReceiver
+import com.nlevcluster.sender.util.FileUtil
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import logcat.logcat
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
@@ -24,6 +29,7 @@ class MainActivity : AppCompatActivity() {
 
     @Inject
     lateinit var mqttClient: MQTTClient
+    private var collectLogBroadcastReceiver: CollectLogBroadcastReceiver? = null
 
     companion object {
         const val SUBSCRIBE_TOPIC = "collector/cloud"
@@ -53,6 +59,23 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<TextView>(R.id.version).text = version
 
+        collectLogBroadcastReceiver = CollectLogBroadcastReceiver {
+            saveLogFileInDownloads()
+            viewModel.log("Received broadcast for saving logs into a file")
+        }
+
+        collectLogBroadcastReceiver?.register(this)
+    }
+
+    private fun saveLogFileInDownloads() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val todayLogs = viewModel.getTodayLogs().joinToString("\n")
+            FileUtil.saveLogTextToFile(this@MainActivity, todayLogs) {
+                val logCollectedIntent = Intent("com.nlev.ACTION_LOGS_COLLECTED")
+                logCollectedIntent.putExtra("APP_NAME", "NL_SENDER")
+                sendBroadcast(logCollectedIntent)
+            }
+        }
     }
 
     /**
@@ -98,6 +121,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        collectLogBroadcastReceiver?.unregister(this)
         mqttClient.disconnect()
         super.onDestroy()
     }
