@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
@@ -65,6 +66,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         collectLogBroadcastReceiver?.register(this)
+
+        viewModel.log("App is started. Going to background")
+        if (BuildConfig.DEBUG) {
+            Toast.makeText(this, "App is started. Going to background", Toast.LENGTH_SHORT).show()
+        }
+        moveTaskToBack(true)
     }
 
     private fun saveLogFileInDownloads() {
