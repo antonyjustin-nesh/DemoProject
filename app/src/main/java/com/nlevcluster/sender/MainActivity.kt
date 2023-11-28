@@ -9,6 +9,7 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
+import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.util.Util
 import com.nlevcluster.sender.mqtt.MQTTClient
 import com.nlevcluster.sender.service.DataSendService
@@ -78,8 +79,8 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val todayLogs = viewModel.getTodayLogs().joinToString("\n")
             FileUtil.saveLogTextToFile(this@MainActivity, todayLogs) {
-                val logCollectedIntent = Intent("com.nlev.ACTION_LOGS_COLLECTED")
-                logCollectedIntent.putExtra("APP_NAME", "NL_SENDER")
+                val logCollectedIntent = Intent(Constants.ACTION_LOGS_COLLECTED)
+                logCollectedIntent.putExtra(Constants.PACKAGE_NAME, packageName)
                 sendBroadcast(logCollectedIntent)
             }
         }

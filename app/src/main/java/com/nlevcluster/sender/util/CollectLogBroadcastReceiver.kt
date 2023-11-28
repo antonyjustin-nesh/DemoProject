@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import androidx.appcompat.app.AppCompatActivity
+import com.nlevcluster.sender.data.constants.Constants
 
 class CollectLogBroadcastReceiver(
     private val onReceive: () -> Unit
@@ -13,7 +14,7 @@ class CollectLogBroadcastReceiver(
     private var registered = false
 
     override fun onReceive(context: Context?, intent: Intent?) {
-        if (context != null) {
+        if (context != null && intent != null && intent.getStringExtra(Constants.PACKAGE_NAME) == context.packageName) {
             onReceive.invoke()
         }
     }
