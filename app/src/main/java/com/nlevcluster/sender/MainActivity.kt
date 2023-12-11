@@ -72,7 +72,6 @@ class MainActivity : AppCompatActivity() {
         if (BuildConfig.DEBUG) {
             Toast.makeText(this, "App is started. Going to background", Toast.LENGTH_SHORT).show()
         }
-        moveTaskToBack(true)
     }
 
     private fun saveLogFileInDownloads() {
@@ -163,6 +162,12 @@ class MainActivity : AppCompatActivity() {
         );
         emailIntent.putExtra(Intent.EXTRA_STREAM, uri)
         startActivity(Intent.createChooser(emailIntent, ""))
+    }
+
+
+    override fun onResume() {
+        super.onResume()
+        moveTaskToBack(true)
     }
 
 }
