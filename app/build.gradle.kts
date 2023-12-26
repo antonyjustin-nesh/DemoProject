@@ -23,7 +23,7 @@ android {
         buildConfigField("String", "CLIENT_ID", "\"nlevcluster-sender\"")
         buildConfigField("String", "MQTT_USERNAME", "\"\"")
         buildConfigField("String", "MQTT_PASSWORD", "\"\"")
-        buildConfigField("boolean", "IS_PRODUCTION", "true")
+        buildConfigField("boolean", "IS_PRODUCTION", "false")
 //        buildConfigField("String", "TABLET", "\"4123\"")
 //        buildConfigField("String", "TABLET", "\"3283\"")
         buildConfigField("String", "TABLET", "\"3311\"")

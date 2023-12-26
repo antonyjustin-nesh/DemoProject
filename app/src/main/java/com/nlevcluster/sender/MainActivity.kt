@@ -11,7 +11,6 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.util.Util
-import com.nlevcluster.sender.mqtt.MQTTClient
 import com.nlevcluster.sender.service.DataSendService
 import com.nlevcluster.sender.util.CollectLogBroadcastReceiver
 import com.nlevcluster.sender.util.FileUtil
@@ -19,33 +18,20 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
-import logcat.logcat
-import org.eclipse.paho.client.mqttv3.IMqttActionListener
-import org.eclipse.paho.client.mqttv3.IMqttToken
 import java.io.File
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
     private val viewModel by viewModels<MainViewModel>()
 
-    @Inject
-    lateinit var mqttClient: MQTTClient
     private var collectLogBroadcastReceiver: CollectLogBroadcastReceiver? = null
-
-    companion object {
-        const val SUBSCRIBE_TOPIC = "collector/cloud"
-        const val SUBSCRIBE_PROCESSOR_TOPIC = "processor/cloud"
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        connectMqttClient()
 
         val intent = Intent(this, DataSendService::class.java)
-        startForegroundService(intent)
-
+        startService(intent)
 
         findViewById<Button>(R.id.shareLogs).setOnClickListener {
             shareLogFile()
@@ -85,51 +71,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Connecting MQTT client
-     *
-     */
-    private fun connectMqttClient() {
-        viewModel.log("Connecting MQTT client to the server")
-        mqttClient.connect("", "", object : IMqttActionListener {
-            override fun onSuccess(asyncActionToken: IMqttToken?) {
-                viewModel.log("MQTT client connection succeeded")
-                topicSubscription(SUBSCRIBE_PROCESSOR_TOPIC)
-            }
-
-            override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                viewModel.log("MQTT client connection failure with exception $exception")
-            }
-        })
-    }
-
-    fun topicSubscription(topic: String) {
-        try {
-            mqttClient.subscribe(
-                mqttClient.mqttAndroidClient,
-                topic,
-                1,
-                object : IMqttActionListener {
-                    override fun onSuccess(asyncActionToken: IMqttToken?) {
-                        viewModel.log("MQTT subscription successful with topic is the $topic")
-                    }
-
-                    override fun onFailure(
-                        asyncActionToken: IMqttToken?,
-                        exception: Throwable?
-                    ) {
-                        logcat { "MQTT subscription unsuccessful with topic $topic with exception $exception" }
-                    }
-
-                })
-        } catch (ex: Exception) {
-            logcat { "Exception while subscribing to topic $topic. Detailed exception $ex" }
-        }
-    }
 
     override fun onDestroy() {
         collectLogBroadcastReceiver?.unregister(this)
-        mqttClient.disconnect()
         super.onDestroy()
     }
 

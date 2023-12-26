@@ -1,11 +1,9 @@
 package com.nlevcluster.sender.mqtt
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
 import com.google.gson.Gson
 import com.nlevcluster.sender.BuildConfig
+import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.database.dao.CanParseDao
 import com.nlevcluster.sender.database.entity.CanParseEntity
@@ -16,7 +14,11 @@ import info.mqtt.android.service.MqttAndroidClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import logcat.asLog
+import logcat.logcat
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
 import org.eclipse.paho.client.mqttv3.IMqttToken
@@ -39,12 +41,10 @@ class MQTTClient @Inject constructor(
 
     private val TAG = "MQTT CLIENT"
     val mqttAndroidClient = MqttAndroidClient(context, SERVER_URI, CLIENT_ID, Ack.AUTO_ACK)
-    var handler = Handler(Looper.getMainLooper())
-    val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var defaultMqttCallback: MqttCallback? = null
 
     companion object {
         //variable for MQTT android client for publish and subscription
-        private var data: String? = null
         const val SERVER_URI = BuildConfig.SERVER_URI
         const val CLIENT_ID = BuildConfig.CLIENT_ID
     }
@@ -52,60 +52,46 @@ class MQTTClient @Inject constructor(
     /**
      * Default Mqtt android client callback for connections
      */
-    private val defaultMqttCallback = object : MqttCallback {
-        override fun connectionLost(cause: Throwable?) {
-            /**
-             * Try to connect again with MQTTAndroidClient
-             */
-            connect()
-            logHelper.log(LogType.INFO, "MQTT connection lost")
-        }
 
-        override fun messageArrived(topic: String?, message: MqttMessage?) {
-            handler.postDelayed(object : Runnable {
-                override fun run() {
+    val canParsedEntityFlow: Flow<CanParseEntity> = callbackFlow {
+        defaultMqttCallback = object : MqttCallback {
+            override fun connectionLost(cause: Throwable?) {
+                /**
+                 * Try to connect again with MQTTAndroidClient
+                 */
+                connect()
+                logHelper.log(LogType.INFO, "MQTT connection lost")
+            }
+
+            override fun messageArrived(topic: String?, message: MqttMessage?) {
+                if (Constants.SUBSCRIBE_PROCESSOR_TOPIC == topic) {
                     try {
-                        data = message?.toString()
-                        logHelper.log(LogType.INFO, "Received data $data")
-                        /**
-                         * Fetching the processed data from the processor application to transmit to backend as packets
-                         */
-                        externalScope.launch {
-                            if (topic != null && topic.equals(
-                                    "processor/cloud",
-                                    true
-                                ) && data != null
-                            ) {
-                                try {
-                                    val canParseEntity =
-                                        gson.fromJson<CanParseEntity>(
-                                            data,
-                                            CanParseEntity::class.java
-                                        )
-                                    canParseDao.upsertCanParseData(canParseEntity)
-                                } catch (ex: Exception) {
-                                    Log.d(
-                                        "Exception",
-                                        "Exception on inserting the CanParseEntity to the database $ex"
-                                    )
-                                }
-                            }
-                        }
-                        logHelper.log(LogType.INFO, "$message arrived from topic $topic")
-                    } catch (ex: Exception) {
+                        val canParseEntity = gson.fromJson(
+                            message.toString(),
+                            CanParseEntity::class.java
+                        )
+                        trySend(canParseEntity)
+                    } catch (e: Exception) {
+                        logcat { e.asLog() }
                         logHelper.log(
                             LogType.EXCEPTION,
-                            "Exception on converting message to string $ex"
+                            e.message
+                                ?: "Error converting message ${message.toString()} to CanParseEntity"
                         )
                     }
                 }
+            }
 
-            }, 10000)
-
+            override fun deliveryComplete(token: IMqttDeliveryToken?) {
+                logHelper.log(LogType.INFO, "MQTT message delivery complete")
+            }
         }
 
-        override fun deliveryComplete(token: IMqttDeliveryToken?) {
-            logHelper.log(LogType.INFO, "MQTT message delivery complete")
+        connectMqttClient()
+
+        awaitClose {
+            logHelper.log(message = "Listening to mqtt feed stopped. Disconnecting")
+            disconnect()
         }
     }
 
@@ -189,9 +175,11 @@ class MQTTClient @Inject constructor(
         username: String = "",
         password: String = "",
         mqttConnect: IMqttActionListener = defaultMqttConnect,
-        mqttCallback: MqttCallback = defaultMqttCallback
+        mqttCallback: MqttCallback? = defaultMqttCallback
     ) {
-        mqttAndroidClient.setCallback(mqttCallback)
+        if (mqttCallback != null) {
+            mqttAndroidClient.setCallback(mqttCallback)
+        }
         val options = MqttConnectOptions()
         options.userName = username
         options.password = password.toCharArray()
@@ -305,6 +293,48 @@ class MQTTClient @Inject constructor(
             mqttClient.disconnect(null, mqttDisconnect)
         } catch (e: MqttException) {
             logHelper.log(LogType.EXCEPTION, "Exception on disconnecting the mqtt client $e")
+        }
+    }
+
+    /**
+     * Connecting MQTT client
+     *
+     */
+    private fun connectMqttClient() {
+        logHelper.log(message = "Connecting MQTT client to the server")
+         connect("", "", object : IMqttActionListener {
+            override fun onSuccess(asyncActionToken: IMqttToken?) {
+                logHelper.log(message ="MQTT client connection succeeded")
+                topicSubscription(Constants.SUBSCRIBE_PROCESSOR_TOPIC)
+            }
+
+            override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+                logHelper.log(message ="MQTT client connection failure with exception $exception")
+            }
+        })
+    }
+
+    fun topicSubscription(topic: String) {
+        try {
+             subscribe(
+               mqttAndroidClient,
+                topic,
+                1,
+                object : IMqttActionListener {
+                    override fun onSuccess(asyncActionToken: IMqttToken?) {
+                        logHelper.log(message ="MQTT subscription successful with topic is the $topic")
+                    }
+
+                    override fun onFailure(
+                        asyncActionToken: IMqttToken?,
+                        exception: Throwable?
+                    ) {
+                        logcat { "MQTT subscription unsuccessful with topic $topic with exception $exception" }
+                    }
+
+                })
+        } catch (ex: Exception) {
+            logcat { "Exception while subscribing to topic $topic. Detailed exception $ex" }
         }
     }
 

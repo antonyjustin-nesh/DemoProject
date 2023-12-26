@@ -11,22 +11,29 @@ import com.nlevcluster.sender.database.util.Util
 import com.nlevcluster.sender.logging.LogHelper
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.Ignition
+import com.nlevcluster.sender.mqtt.MQTTClient
 import com.nlevcluster.sender.util.SenderNotificationChannelId
 import com.nlevcluster.sender.util.createSenderNotification
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import logcat.asLog
 import logcat.logcat
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.io.PrintWriter
-import java.util.Timer
-import java.util.TimerTask
+import java.net.Socket
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class DataSendService : Service() {
-
-    private var ignitionOff = true
-    private var count = 0
-    private var timing = 0
 
     @Inject
     lateinit var canParseDao: CanParseDao
@@ -34,12 +41,18 @@ class DataSendService : Service() {
     @Inject
     lateinit var logHelper: LogHelper
 
+    @Inject
+    lateinit var mqttClient: MQTTClient
+
+    private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var ignitionOnDelay = 3000L
+    private var ignitionOffDelay = 6000L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
             startForeground(SenderNotificationChannelId, createSenderNotification())
             logcat { "Scheduling send data with executor service" }
-            scheduleDataSend()
+            sendData()
         } catch (ex: Exception) {
             log(
                 message =
@@ -49,40 +62,18 @@ class DataSendService : Service() {
         return START_STICKY
     }
 
-    /**
-     * Scheduling executor service
-     *
-     */
-    private fun scheduleDataSend() {
-        var timerTask = object : TimerTask() {
-            override fun run() {
-                log(message = "Data send scheduling")
-                val canFeed = canParseDao.getLastCanParseEntity()
-                log(message = "CanParseEntity from database $canFeed")
-                if (canFeed != null) {
-                    log(message = "CanParseEntity from database $canFeed")
-                    if (canFeed.ignitionStatus == "ON") {
-                        //Resetting values back to 0 once the ignition is ON
-                        ignitionOff = false
-                        count = 0
-                        timing = 0
-                        sendDataToBackEnd(canFeed)
-                    } else if (canFeed.ignitionStatus == "OFF") {
-                        ignitionOff = true
-                        if (count == 0 && (timing / 60 == 10 || timing / 60 == 0)) {
-                            count += 1
-                            timing += 30
-                            sendDataToBackEnd(canFeed)
-                        }
-                    }
+    private fun sendData() {
+        externalScope.launch {
+            mqttClient.canParsedEntityFlow.conflate()
+                .onEach { canParseEntity ->
+                    val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") ignitionOnDelay
+                    else ignitionOffDelay
+                    delay(dataPushDelay)
+                }.collect { canParseEntity ->
+                    logcat { "collected can feed" }
+                    sendDataToBackEnd(canParseEntity)
                 }
-            }
-
         }
-        Timer().scheduleAtFixedRate(
-            timerTask, 0L, 30000L
-        )
-
     }
 
     private fun log(message: String) {
@@ -93,21 +84,39 @@ class DataSendService : Service() {
 
     //Send Data to backend
     private fun sendDataToBackEnd(canFeed: CanParseEntity) {
-        try {
-            val url =
-                if (BuildConfig.IS_PRODUCTION) "ev.nesh.live" else "qa.nesh.live"
-            val socket = java.net.Socket(url, 7788)
-            val outputStream = PrintWriter(socket.getOutputStream())
-            outputStream.println(getDataString(canFeed))
-            outputStream.flush()
-            outputStream.close()
-            socket.close()
-        } catch (ex: Exception) {
-            log(
-                "Exception on sending data to the backend using socket $ex"
-            )
+        externalScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val url = if (BuildConfig.IS_PRODUCTION) "ev.nesh.live"
+                    else "qadevice.nesh.live"
+
+                    Socket(url, 7788).use { socket ->
+                        PrintWriter(socket.getOutputStream()).use { outputStream ->
+                            // Send data to the backend
+                            val reqData = getDataString(canFeed)
+                            logcat { "Socket Request - $reqData" }
+                            outputStream.println(reqData)
+                            outputStream.flush()
+
+                            // Receive response from the backend
+                            BufferedReader(
+                                InputStreamReader(
+                                    socket.getInputStream(),
+                                    Charsets.UTF_8
+                                )
+                            ).use { reader ->
+                                val response = reader.readLine()
+                                logcat { "Socket Response - $response" }
+                            }
+                        }
+                    }
+                } catch (ex: Exception) {
+                    log("Exception on sending/receiving data to/from the backend using socket $ex")
+                }
+            }
         }
     }
+
 
     /**
      * Generate tcp/ip protocol feed
@@ -124,9 +133,9 @@ class DataSendService : Service() {
             when (BuildConfig.TABLET) {
                 "3283" -> "353555072721125"
                 "4123" -> "353555072729524"
-                else -> "353555072153311"
+                else -> "911233851860432"
             }
-        } else "350544503177043"
+        } else "911233851860432"
         //Echo/Power/Sports
         val gearPos = when (canParseEntity.evMode) {
             EvMode.SPORTS.mode -> "1"
@@ -149,7 +158,6 @@ class DataSendService : Service() {
                     "${returnVehicleStatus(canParseEntity.ignitionStatus)}|3.9|${canParseEntity.soc}|" +
                     "${canParseEntity.odometer}|1|1|${canParseEntity.batteryVoltage}|${canParseEntity.batteryCurrent}|" +
                     "${canParseEntity.soc}|32|${canParseEntity.speed}|${canParseEntity.odometer}|${canParseEntity.rpm}|$vehicleStatus|$gearPos|100#"
-        log("Sending data to backend $dataString")
         return dataString
     }
 
@@ -176,6 +184,8 @@ class DataSendService : Service() {
     }
 
     override fun onDestroy() {
+        mqttClient.disconnect()
+        externalScope.cancel()
         super.onDestroy()
     }
 }
