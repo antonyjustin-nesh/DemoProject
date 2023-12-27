@@ -45,8 +45,8 @@ class DataSendService : Service() {
     lateinit var mqttClient: MQTTClient
 
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var ignitionOnDelay = 3000L
-    private var ignitionOffDelay = 6000L
+    private var ignitionOnDelay = 30000L
+    private var ignitionOffDelay = 60000L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {

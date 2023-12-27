@@ -12,6 +12,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import info.mqtt.android.service.Ack
 import info.mqtt.android.service.MqttAndroidClient
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import logcat.asLog
@@ -297,7 +298,7 @@ class MQTTClient @Inject constructor(
      * Connecting MQTT client
      *
      */
-    private fun connectMqttClient() {
+    private  fun connectMqttClient() {
         logHelper.log(message = "Connecting MQTT client to the server")
          connect("", "", object : IMqttActionListener {
             override fun onSuccess(asyncActionToken: IMqttToken?) {
@@ -306,6 +307,7 @@ class MQTTClient @Inject constructor(
             }
 
             override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+                connectMqttClient()
                 logHelper.log(message ="MQTT client connection failure with exception $exception")
             }
         })
