@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import com.nlevcluster.sender.BuildConfig
+import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.database.dao.CanParseDao
 import com.nlevcluster.sender.database.entity.CanParseEntity
@@ -17,18 +18,18 @@ import com.nlevcluster.sender.util.createSenderNotification
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import logcat.asLog
 import logcat.logcat
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.PrintWriter
 import java.net.Socket
 import javax.inject.Inject
 
@@ -44,15 +45,21 @@ class DataSendService : Service() {
     @Inject
     lateinit var mqttClient: MQTTClient
 
-    private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var ignitionOnDelay = 30000L
     private var ignitionOffDelay = 60000L
 
+    private var responseBufferSize = 1024
+
+    private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var senderJob: Job? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
-            startForeground(SenderNotificationChannelId, createSenderNotification())
             logcat { "Scheduling send data with executor service" }
-            sendData()
+            if (senderJob == null) {
+                startForeground(SenderNotificationChannelId, createSenderNotification())
+                sendData()
+            }
         } catch (ex: Exception) {
             log(
                 message =
@@ -63,60 +70,67 @@ class DataSendService : Service() {
     }
 
     private fun sendData() {
-        externalScope.launch {
-            mqttClient.canParsedEntityFlow.conflate()
-                .onEach { canParseEntity ->
-                    val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") ignitionOnDelay
-                    else ignitionOffDelay
-                    delay(dataPushDelay)
-                }.collect { canParseEntity ->
-                    logcat { "collected can feed" }
-                    sendDataToBackEnd(canParseEntity)
-                }
+        senderJob = externalScope.launch(Dispatchers.IO) {
+            mqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
+                val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") ignitionOnDelay
+                else ignitionOffDelay
+
+                delay(dataPushDelay)
+
+                sendDataToBackEnd(canParseEntity)
+            }.collect()
         }
     }
 
     private fun log(message: String) {
-        if (this::logHelper.isInitialized) {
+        if (::logHelper.isInitialized) {
             logHelper.log(LogType.INFO, message)
         }
     }
 
-    //Send Data to backend
-    private fun sendDataToBackEnd(canFeed: CanParseEntity) {
-        externalScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val url = if (BuildConfig.IS_PRODUCTION) "ev.nesh.live"
-                    else "qadevice.nesh.live"
+    private suspend fun sendDataToBackEnd(canFeed: CanParseEntity) {
+        withContext(Dispatchers.IO) {
+            try {
+                val feedUrl = if (BuildConfig.IS_PRODUCTION) "ev.nesh.live"
+                else "qadevice.nesh.live"
+                val feedPort = 7788
 
-                    Socket(url, 7788).use { socket ->
-                        PrintWriter(socket.getOutputStream()).use { outputStream ->
-                            // Send data to the backend
-                            val reqData = getDataString(canFeed)
-                            logcat { "Socket Request - $reqData" }
-                            outputStream.println(reqData)
-                            outputStream.flush()
-
-                            // Receive response from the backend
-                            BufferedReader(
-                                InputStreamReader(
-                                    socket.getInputStream(),
-                                    Charsets.UTF_8
-                                )
-                            ).use { reader ->
-                                val response = reader.readLine()
-                                logcat { "Socket Response - $response" }
-                            }
-                        }
+                Socket(feedUrl, feedPort).use { socket ->
+                    val reqData = getDataString(canFeed)
+                    logcat { "Socket Request - $reqData" }
+                    socket.getOutputStream().apply {
+                        write(reqData.toByteArray())
+                        flush()
                     }
-                } catch (ex: Exception) {
-                    log("Exception on sending/receiving data to/from the backend using socket $ex")
+
+                    var socketResponse = ""
+                    socket.getInputStream().apply {
+                        val buffer = ByteArray(responseBufferSize)
+                        var bytesRead = 0
+                        while (isActive && read(buffer).also { bytesRead = it } > 0) {
+                            val readData = String(buffer, 0, bytesRead)
+                            socketResponse += readData
+                            if (available() == 0) break
+                        }
+
+                        close()
+                    }
+                    logcat { "Socket Response - $socketResponse" }
                 }
+            } catch (ex: Exception) {
+                log("Exception on sending/receiving data to/from the backend using socket $ex")
             }
         }
     }
 
+    private fun sendOtaBroadcast(response: String) {
+        val dummyResponse =
+            "{\"version\":\"v1.2.3\",\"apps\":[{\"id\":3,\"downloadUrl\":\"https://firebasestorage.googleapis.com/v0/b/nlmdm-e6fdb.appspot.com/o/AndroidCluster%2FProcessor%2Fdemo%2FNL-Processor-Demo?alt=media&token=cb66ce20-b41c-4092-abc8-d809c3a3a318\",\"forceInstall\":false,\"iconUrl\":\"\",\"name\":\"NL-Processor\",\"packageName\":\"com.nlevcluster.processor\",\"version\":\"1.2.3\"}]}"
+        val otaIntent = Intent(Constants.ACTION_OTA_UPDATE_AVAILABLE)
+
+        otaIntent.putExtra(Constants.OTA_DATA, dummyResponse)
+        sendBroadcast(otaIntent)
+    }
 
     /**
      * Generate tcp/ip protocol feed
@@ -184,7 +198,8 @@ class DataSendService : Service() {
     }
 
     override fun onDestroy() {
-        mqttClient.disconnect()
+        senderJob?.cancel()
+        senderJob = null
         externalScope.cancel()
         super.onDestroy()
     }

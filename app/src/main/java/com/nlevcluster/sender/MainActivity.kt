@@ -30,9 +30,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        val intent = Intent(this, DataSendService::class.java)
-        startService(intent)
-
         findViewById<Button>(R.id.shareLogs).setOnClickListener {
             shareLogFile()
         }
@@ -72,11 +69,6 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    override fun onDestroy() {
-        collectLogBroadcastReceiver?.unregister(this)
-        super.onDestroy()
-    }
-
     /**
      * Share logs files for debugging purpose
      *
@@ -108,10 +100,20 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent.createChooser(emailIntent, ""))
     }
 
+    private fun startDataSendService() {
+        val intent = Intent(this, DataSendService::class.java)
+        startService(intent)
+    }
 
     override fun onResume() {
         super.onResume()
+        startDataSendService()
         moveTaskToBack(true)
     }
 
+
+    override fun onDestroy() {
+        collectLogBroadcastReceiver?.unregister(this)
+        super.onDestroy()
+    }
 }

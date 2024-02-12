@@ -5,14 +5,12 @@ import com.google.gson.Gson
 import com.nlevcluster.sender.BuildConfig
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.LogType
-import com.nlevcluster.sender.database.dao.CanParseDao
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.logging.LogHelper
 import dagger.hilt.android.qualifiers.ApplicationContext
 import info.mqtt.android.service.Ack
 import info.mqtt.android.service.MqttAndroidClient
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import logcat.asLog
@@ -31,7 +29,6 @@ import javax.inject.Singleton
 class MQTTClient @Inject constructor(
     @ApplicationContext context: Context,
     private val gson: Gson,
-    private val canParseDao: CanParseDao,
 ) {
 
     @Inject
@@ -85,7 +82,7 @@ class MQTTClient @Inject constructor(
             }
         }
 
-        connectMqttClient()
+        connect()
 
         awaitClose {
             logHelper.log(message = "Listening to mqtt feed stopped. Disconnecting")
@@ -100,9 +97,11 @@ class MQTTClient @Inject constructor(
     private val defaultMqttConnect = object : IMqttActionListener {
         override fun onSuccess(asyncActionToken: IMqttToken?) {
             logHelper.log(LogType.INFO, "MQTT connection success with token $asyncActionToken")
+            topicSubscription(Constants.SUBSCRIBE_PROCESSOR_TOPIC)
         }
 
         override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+            connect()
             logHelper.log(LogType.EXCEPTION, "MQTT connection failure with exception $exception")
         }
     }
