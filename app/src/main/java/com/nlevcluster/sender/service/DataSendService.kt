@@ -6,7 +6,6 @@ import android.os.IBinder
 import com.nlevcluster.sender.BuildConfig
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.LogType
-import com.nlevcluster.sender.database.dao.CanParseDao
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.database.util.Util
 import com.nlevcluster.sender.logging.LogHelper
@@ -25,30 +24,29 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import logcat.asLog
 import logcat.logcat
-import java.net.Socket
 import javax.inject.Inject
+import javax.inject.Named
 
 @AndroidEntryPoint
 class DataSendService : Service() {
 
     @Inject
-    lateinit var canParseDao: CanParseDao
-
-    @Inject
     lateinit var logHelper: LogHelper
 
+
     @Inject
-    lateinit var mqttClient: MQTTClient
+    @Named("portal")
+    lateinit var portalMqttClient: MQTTClient
 
-    private var ignitionOnDelay = 30000L
-    private var ignitionOffDelay = 60000L
+    @Inject
+    @Named("local")
+    lateinit var localMqttClient: MQTTClient
 
-    private var responseBufferSize = 1024
+    private var ignitionOnDelay = 5_000L
+    private var ignitionOffDelay = 60_000L
 
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var senderJob: Job? = null
@@ -58,6 +56,7 @@ class DataSendService : Service() {
             logcat { "Scheduling send data with executor service" }
             if (senderJob == null) {
                 startForeground(SenderNotificationChannelId, createSenderNotification())
+                portalMqttClient.connectMqttClient()
                 sendData()
             }
         } catch (ex: Exception) {
@@ -71,13 +70,13 @@ class DataSendService : Service() {
 
     private fun sendData() {
         senderJob = externalScope.launch(Dispatchers.IO) {
-            mqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
+            localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
                 val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") ignitionOnDelay
                 else ignitionOffDelay
 
                 delay(dataPushDelay)
 
-                sendDataToBackEnd(canParseEntity)
+                sendDataToPortal(canParseEntity)
             }.collect()
         }
     }
@@ -88,39 +87,10 @@ class DataSendService : Service() {
         }
     }
 
-    private suspend fun sendDataToBackEnd(canFeed: CanParseEntity) {
-        withContext(Dispatchers.IO) {
-            try {
-                val feedUrl = if (BuildConfig.IS_PRODUCTION) "ev.nesh.live"
-                else "qadevice.nesh.live"
-                val feedPort = 7788
-
-                Socket(feedUrl, feedPort).use { socket ->
-                    val reqData = getDataString(canFeed)
-                    logcat { "Socket Request - $reqData" }
-                    socket.getOutputStream().apply {
-                        write(reqData.toByteArray())
-                        flush()
-                    }
-
-                    var socketResponse = ""
-                    socket.getInputStream().apply {
-                        val buffer = ByteArray(responseBufferSize)
-                        var bytesRead = 0
-                        while (isActive && read(buffer).also { bytesRead = it } > 0) {
-                            val readData = String(buffer, 0, bytesRead)
-                            socketResponse += readData
-                            if (available() == 0) break
-                        }
-
-                        close()
-                    }
-                    logcat { "Socket Response - $socketResponse" }
-                }
-            } catch (ex: Exception) {
-                log("Exception on sending/receiving data to/from the backend using socket $ex")
-            }
-        }
+    private fun sendDataToPortal(canFeed: CanParseEntity) {
+        val reqData = getDataString(canFeed)
+        logcat { "sendDataToPortal $reqData" }
+        portalMqttClient.publish(msg = reqData)
     }
 
     private fun sendOtaBroadcast(response: String) {
