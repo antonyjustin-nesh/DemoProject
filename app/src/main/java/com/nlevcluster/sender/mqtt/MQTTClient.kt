@@ -253,7 +253,7 @@ class MQTTClient @Inject constructor(
     fun publish(
         mqttClient: IMqttAsyncClient = mqttAndroidClient,
         topic: String = feedTopic,
-        retained: Boolean = true,
+        retained: Boolean = false,
         mqttPublish: IMqttActionListener = defaultMqttPublish,
         qos: Int = QoS.ExactlyOnce.value,
         msg: String,

@@ -119,7 +119,7 @@ class DataSendService : Service() {
                 "4123" -> "353555072729524"
                 else -> "911233851860432"
             }
-        } else "911233851860432"
+        } else "353555072721125"
         //Echo/Power/Sports
         val gearPos = when (canParseEntity.evMode) {
             EvMode.SPORTS.mode -> "1"
@@ -135,7 +135,7 @@ class DataSendService : Service() {
         }
         log(message = "CanParseEntity on data String $canParseEntity")
         val dataString =
-            "^NLPR|$imei|${canParseEntity.id}|${canParseEntity.latitude}|${canParseEntity.longitude}|" +
+            "^NLPR|$imei|${canParseEntity.id}|28.65303|77.33167|" +
                     "${canParseEntity.altitude}|${Util.getTimeFromLong(canParseEntity.createdDate)}|" +
                     "${Util.getDateFromLong(canParseEntity.createdDate)}|" +
                     "${canParseEntity.speed}|34|5|1|${returnIgnitionStatus(canParseEntity.ignitionStatus)}|1|" +
