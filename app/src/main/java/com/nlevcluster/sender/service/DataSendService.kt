@@ -3,7 +3,6 @@ package com.nlevcluster.sender.service
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
-import com.nlevcluster.sender.BuildConfig
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.database.entity.CanParseEntity
@@ -45,7 +44,7 @@ class DataSendService : Service() {
     @Named("local")
     lateinit var localMqttClient: MQTTClient
 
-    private var ignitionOnDelay = 5_000L
+    private var ignitionOnDelay = 30_000L
     private var ignitionOffDelay = 60_000L
 
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -77,6 +76,7 @@ class DataSendService : Service() {
                 delay(dataPushDelay)
 
                 sendDataToPortal(canParseEntity)
+                logcat("MQTT_FILE_TRANSFER") { "Sending data to portal" }
             }.collect()
         }
     }
@@ -88,10 +88,67 @@ class DataSendService : Service() {
     }
 
     private fun sendDataToPortal(canFeed: CanParseEntity) {
-        val reqData = getDataString(canFeed)
-        logcat { "sendDataToPortal $reqData" }
-        portalMqttClient.publish(msg = reqData)
+        val feedData = createFeed(canFeed)
+        val mqttPacket = """
+        {
+            "type":"${Constants.TOPIC_RAW_FEED}",
+            "data":${feedData}
+        }
+        """.trimIndent()
+        logcat { "sendDataToPortal $feedData" }
+        portalMqttClient.publish(msg = mqttPacket)
     }
+
+    private fun createFeed(canFeedEntity: CanParseEntity): String {
+        val gearPos = when (canFeedEntity.evMode) {
+            EvMode.SPORTS.mode -> "1"
+            EvMode.POWER.mode -> "2"
+            else -> "0"
+        }
+        //Vehicle Mode P/N/D/R
+        val vehicleStatus = when (canFeedEntity.ignition) {
+            Ignition.REVERSE.name -> "1"
+            Ignition.DRIVE.name -> "4"
+            Ignition.NEUTRAL.name -> "2"
+            else -> "0"
+        }
+        canFeedEntity.apply {
+            return """
+            {
+              "imei": "911233851860432",
+              "sequenceNumber": "$id",
+              "latitude": "$latitude",
+              "longitude": "$longitude",
+              "altitude": "$altitude",
+              "time": "${Util.getTimeFromLong(createdDate)}",
+              "date": "${Util.getDateFromLong(createdDate)}",
+              "speed": "$speed",
+              "heading": "34",
+              "noOfSat": "5",
+              "mainPowerStatus": "1",
+              "ignitionStatus": "${getIgnitionStatus(ignitionStatus)}",
+              "movementStatus": "1",
+              "vehicleStatus": "${returnVehicleStatus(ignitionStatus)}",
+              "interBatteryVoltage": "3.9",
+              "interBatteryPercentage": "$soc",
+              "gpsOdometer": "$odometer",
+              "gpsDataValidityStatus": "1",
+              "packetLiveOrStoredStatus": "1",
+              "batteryVoltage": "$batteryVoltage",
+              "batteryCurrent": "$batteryCurrent",
+              "batterySoC": "$soc",
+              "batteryCapacityRemaining": "32",
+              "vehicleSpeed": "$speed",
+              "vehicleOdometer": "$odometer",
+              "motorRPM": "$rpm",
+              "vehicleMode": "$vehicleStatus",
+              "gearPosition": "$gearPos",
+              "customerCode": "100"
+            }
+        """.trimIndent()
+        }
+    }
+
 
     private fun sendOtaBroadcast(response: String) {
         val dummyResponse =
@@ -100,49 +157,6 @@ class DataSendService : Service() {
 
         otaIntent.putExtra(Constants.OTA_DATA, dummyResponse)
         sendBroadcast(otaIntent)
-    }
-
-    /**
-     * Generate tcp/ip protocol feed
-     */
-//    for production
-//    353555072153311
-
-    private fun getDataString(canParseEntity: CanParseEntity): String {
-//        ^NLPR|DeviceID|SequenceNumber|Latitude|Longitude|Altitude|Time|Date|Speed|Heading|
-//        NoOfSat|MainPowerStatus|IgnitionStatus|MovementStatus|VehicleStatus|InterBatteryVoltage|InterBatteryPercentage|GPSOdometer
-//        |GPSDataValidityStatus|PacketLiveOrStoredStatus|Battery Voltage|Battery Current|Battery SoC|Battery CapacityRemaining
-//        |Vehicle Speed| Vehicle Odometer|MotorRPM||VehicleMode|Gear Postion|CustomerCode#
-        val imei = if (BuildConfig.IS_PRODUCTION) {
-            when (BuildConfig.TABLET) {
-                "3283" -> "353555072721125"
-                "4123" -> "353555072729524"
-                else -> "911233851860432"
-            }
-        } else "353555072721125"
-        //Echo/Power/Sports
-        val gearPos = when (canParseEntity.evMode) {
-            EvMode.SPORTS.mode -> "1"
-            EvMode.POWER.mode -> "2"
-            else -> "0"
-        }
-        //Vehicle Mode P/N/D/R
-        val vehicleStatus = when (canParseEntity.ignition) {
-            Ignition.REVERSE.name -> "1"
-            Ignition.DRIVE.name -> "4"
-            Ignition.NEUTRAL.name -> "2"
-            else -> "0"
-        }
-        log(message = "CanParseEntity on data String $canParseEntity")
-        val dataString =
-            "^NLPR|$imei|${canParseEntity.id}|28.65303|77.33167|" +
-                    "${canParseEntity.altitude}|${Util.getTimeFromLong(canParseEntity.createdDate)}|" +
-                    "${Util.getDateFromLong(canParseEntity.createdDate)}|" +
-                    "${canParseEntity.speed}|34|5|1|${returnIgnitionStatus(canParseEntity.ignitionStatus)}|1|" +
-                    "${returnVehicleStatus(canParseEntity.ignitionStatus)}|3.9|${canParseEntity.soc}|" +
-                    "${canParseEntity.odometer}|1|1|${canParseEntity.batteryVoltage}|${canParseEntity.batteryCurrent}|" +
-                    "${canParseEntity.soc}|32|${canParseEntity.speed}|${canParseEntity.odometer}|${canParseEntity.rpm}|$vehicleStatus|$gearPos|100#"
-        return dataString
     }
 
     private fun returnVehicleStatus(status: String): String {
@@ -155,7 +169,7 @@ class DataSendService : Service() {
         }
     }
 
-    private fun returnIgnitionStatus(status: String): String {
+    private fun getIgnitionStatus(status: String): String {
         return when (status) {
             Ignition.PARK.name -> "0"
             Ignition.DRIVE.name, Ignition.NEUTRAL.name, Ignition.REVERSE.name -> "1"

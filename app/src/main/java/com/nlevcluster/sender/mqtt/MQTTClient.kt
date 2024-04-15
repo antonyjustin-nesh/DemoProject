@@ -2,6 +2,7 @@ package com.nlevcluster.sender.mqtt
 
 import android.content.Context
 import com.google.gson.Gson
+import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.logging.LogHelper
@@ -34,6 +35,7 @@ class MQTTClient @Inject constructor(
     clientId: String,
     private val feedTopic: String,
 ) {
+    private val fileTopic = "FOTA_UPLOAD/911233851860432"
 
     private val persistence = MqttDefaultFilePersistence(context.filesDir.absolutePath)
     private val disconnectedBufferOptions = DisconnectedBufferOptions().apply {
@@ -72,6 +74,23 @@ class MQTTClient @Inject constructor(
                         )
                     }
                 }
+
+                if (topic == fileTopic) {
+                logcat("MQTT_FILE_TRANSFER") { topic.toString()}
+
+                    runCatching {
+                        val payload = message?.payload ?: return
+
+                        logcat("MQTT_FILE_TRANSFER") {
+                            "Byte length $payload \n" +
+                                    " Contents ${payload.contentToString()}"
+                        }
+                    }.onFailure {
+                        logcat("MQTT_FILE_TRANSFER") {
+                            it.asLog()
+                        }
+                    }
+                }
             }
 
             override fun deliveryComplete(token: IMqttDeliveryToken?) {
@@ -94,6 +113,9 @@ class MQTTClient @Inject constructor(
         override fun onSuccess(asyncActionToken: IMqttToken?) {
             logHelper.log(LogType.INFO, "MQTT connection success with token $asyncActionToken")
             topicSubscription(feedTopic)
+            if(feedTopic == Constants.TOPIC_RAW_FEED){
+                topicSubscription(fileTopic)
+            }
         }
 
         override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
@@ -132,7 +154,7 @@ class MQTTClient @Inject constructor(
      */
     private val defaultMqttPublish = object : IMqttActionListener {
         override fun onSuccess(asyncActionToken: IMqttToken?) {
-            logHelper.log(LogType.INFO, "MQTT publish success with token $asyncActionToken")
+            logHelper.log(LogType.INFO, "MQTT publish success")
         }
 
         override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
@@ -299,6 +321,9 @@ class MQTTClient @Inject constructor(
             override fun onSuccess(asyncActionToken: IMqttToken?) {
                 logHelper.log(message = "MQTT client connection succeeded")
                 topicSubscription(feedTopic)
+                if(feedTopic == Constants.TOPIC_RAW_FEED){
+                    topicSubscription(fileTopic)
+                }
             }
 
             override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
