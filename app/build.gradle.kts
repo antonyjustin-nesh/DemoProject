@@ -58,7 +58,7 @@ android {
         buildConfig = true
         viewBinding = true
     }
-
+    android { packagingOptions.resources.excludes.add("META-INF/*") }
 }
 
 dependencies {
@@ -108,6 +108,10 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics-ktx")
     //Crashlytics
     implementation("com.google.firebase:firebase-crashlytics-ktx")
+
+    // HiveMQ Client
+    implementation("com.hivemq:hivemq-mqtt-client-shaded:1.3.3")
+
 }
 
 // Allow references to generated code

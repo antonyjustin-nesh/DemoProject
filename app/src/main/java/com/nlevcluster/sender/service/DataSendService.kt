@@ -11,6 +11,7 @@ import com.nlevcluster.sender.logging.LogHelper
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.Ignition
 import com.nlevcluster.sender.mqtt.MQTTClient
+import com.nlevcluster.sender.util.MQTTUtil
 import com.nlevcluster.sender.util.SenderNotificationChannelId
 import com.nlevcluster.sender.util.createSenderNotification
 import dagger.hilt.android.AndroidEntryPoint
@@ -35,10 +36,7 @@ class DataSendService : Service() {
     @Inject
     lateinit var logHelper: LogHelper
 
-
-    @Inject
-    @Named("portal")
-    lateinit var portalMqttClient: MQTTClient
+    private val portalMQTTClient = MQTTUtil()
 
     @Inject
     @Named("local")
@@ -55,7 +53,7 @@ class DataSendService : Service() {
             logcat { "Scheduling send data with executor service" }
             if (senderJob == null) {
                 startForeground(SenderNotificationChannelId, createSenderNotification())
-                portalMqttClient.connectMqttClient()
+                initMQTTClient()
                 sendData()
             }
         } catch (ex: Exception) {
@@ -67,23 +65,30 @@ class DataSendService : Service() {
         return START_STICKY
     }
 
+    private fun initMQTTClient() {
+        portalMQTTClient.connect(
+            url = Constants.MQTT_PORTAL_URL,
+            port = Constants.MQTT_PORTAL_PORT,
+            clientId = Constants.TEST_IMEI
+        ) { isConnected ->
+            if (isConnected) {
+                logcat { "Connected" }
+            } else {
+                logcat { "failed to connect" }
+            }
+        }
+    }
+
     private fun sendData() {
         senderJob = externalScope.launch(Dispatchers.IO) {
             localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
                 val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") ignitionOnDelay
                 else ignitionOffDelay
 
-                delay(dataPushDelay)
-
                 sendDataToPortal(canParseEntity)
+                delay(dataPushDelay)
                 logcat("MQTT_FILE_TRANSFER") { "Sending data to portal" }
             }.collect()
-        }
-    }
-
-    private fun log(message: String) {
-        if (::logHelper.isInitialized) {
-            logHelper.log(LogType.INFO, message)
         }
     }
 
@@ -96,7 +101,8 @@ class DataSendService : Service() {
         }
         """.trimIndent()
         logcat { "sendDataToPortal $feedData" }
-        portalMqttClient.publish(msg = mqttPacket)
+
+        portalMQTTClient.publish(Constants.TOPIC_RAW_FEED, mqttPacket.toByteArray())
     }
 
     private fun createFeed(canFeedEntity: CanParseEntity): String {
@@ -177,6 +183,12 @@ class DataSendService : Service() {
         }
     }
 
+    private fun log(message: String) {
+        if (::logHelper.isInitialized) {
+            logHelper.log(LogType.INFO, message)
+        }
+    }
+
     override fun onBind(intent: Intent): IBinder? {
         return null
     }
@@ -185,6 +197,7 @@ class DataSendService : Service() {
         senderJob?.cancel()
         senderJob = null
         externalScope.cancel()
+        portalMQTTClient.disconnect()
         super.onDestroy()
     }
 }
