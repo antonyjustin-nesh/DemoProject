@@ -42,7 +42,7 @@ class DataSendService : Service() {
     @Named("local")
     lateinit var localMqttClient: MQTTClient
 
-    private var ignitionOnDelay = 30_000L
+    private var ignitionOnDelay = 5_000L
     private var ignitionOffDelay = 60_000L
 
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -121,7 +121,7 @@ class DataSendService : Service() {
         canFeedEntity.apply {
             return """
             {
-              "imei": "911233851860432",
+              "imei": "359214420438966",
               "sequenceNumber": "$id",
               "latitude": "$latitude",
               "longitude": "$longitude",
