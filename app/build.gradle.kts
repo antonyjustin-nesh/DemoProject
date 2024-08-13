@@ -23,7 +23,7 @@ android {
         buildConfigField("String", "CLIENT_ID", "\"nlevcluster-sender\"")
         buildConfigField("String", "MQTT_USERNAME", "\"\"")
         buildConfigField("String", "MQTT_PASSWORD", "\"\"")
-        buildConfigField("String", "MQTT_FEED_TOPIC", "\"processor/cloud\"")
+        buildConfigField("String", "MQTT_FEED_TOPIC", "\"sender/processed_can_feed\"")
 
         buildConfigField("String", "PORTAL_MQTT_SERVER_URI", "\"tcp://averav2.nesh.live\"")
         buildConfigField("String", "PORTAL_MQTT_CLIENT_ID", "\"portal-nlevcluster-sender\"")

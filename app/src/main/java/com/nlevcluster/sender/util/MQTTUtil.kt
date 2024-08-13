@@ -18,12 +18,10 @@ class MQTTUtil {
     private val TAG = "MQTT_UTIL"
     private var client: Mqtt5AsyncClient? = null
 
-    var isConnected = false
-        private set
-
     private var _message: MutableStateFlow<MQTTMessage>? = null
     val message get() = _message?.asStateFlow()
 
+    fun isConnected(): Boolean = client?.state?.isConnected ?: false
 
     /**
      * Connects to the broker using given [url], [port], [clientId]
@@ -35,7 +33,7 @@ class MQTTUtil {
         onConnectionStatusChange: (Boolean) -> Unit
     ) {
         if (client != null) {
-            Log.i(TAG, "connect: The client is already connected. Ignoring the connection request.")
+            logcat(TAG) { "connect: The client is already connected. Ignoring the connection request." }
             return
         }
 
@@ -49,7 +47,7 @@ class MQTTUtil {
 
         client?.connectWith()
             ?.send()
-            ?.whenComplete { connAck, throwable ->
+            ?.whenComplete { _, throwable ->
                 if (throwable != null) {
                     Log.e(
                         TAG,
@@ -57,12 +55,10 @@ class MQTTUtil {
                                 " using $url:$port with clientId - $clientId",
                         throwable
                     )
-                    isConnected = false
-                    onConnectionStatusChange(isConnected)
+                    onConnectionStatusChange(false)
                 } else {
                     Log.d(TAG, "Connection successful")
-                    isConnected = true
-                    onConnectionStatusChange(isConnected)
+                    onConnectionStatusChange(true)
                 }
             }
     }
@@ -70,7 +66,7 @@ class MQTTUtil {
     fun disconnect() {
         client?.disconnectWith()
             ?.send()
-            ?.whenComplete { connAck, throwable ->
+            ?.whenComplete { _, throwable ->
                 if (throwable != null) {
                     // handle failure
                     Log.e(TAG, "disconnect: failed to disconnect the broker", throwable)
@@ -127,7 +123,12 @@ class MQTTUtil {
         }
     }
 
-    fun publish(topic: String, message: ByteArray, qos: MqttQos = MqttQos.EXACTLY_ONCE) {
+    fun publish(
+        topic: String,
+        message: ByteArray,
+        qos: MqttQos = MqttQos.EXACTLY_ONCE,
+        onComplete: (isSuccess: Boolean) -> Unit = {}
+    ) {
         logcat(TAG) { "Publishing to topic $topic " + "with message ${message.decodeToString()}" }
 
         checkConnection("publish")
@@ -143,9 +144,11 @@ class MQTTUtil {
                         "publish: failed to publish to topic -  $topic, message - $message \n" +
                                 throwable.asLog()
                     }
+                    onComplete(false)
                 } else {
                     // handle successful publish, e.g. logging or incrementing a metric
-                    logcat(TAG) { "Published successfully. topic -  $topic, message - $message " }
+                    logcat(TAG) { "Published successfully. topic -  $topic, message - ${message.decodeToString()} " }
+                    onComplete(true)
                 }
             }
     }

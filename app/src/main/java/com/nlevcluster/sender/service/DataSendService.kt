@@ -1,8 +1,13 @@
 package com.nlevcluster.sender.service
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import androidx.core.app.NotificationCompat
+import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.database.entity.CanParseEntity
@@ -12,8 +17,6 @@ import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.Ignition
 import com.nlevcluster.sender.mqtt.MQTTClient
 import com.nlevcluster.sender.util.MQTTUtil
-import com.nlevcluster.sender.util.SenderNotificationChannelId
-import com.nlevcluster.sender.util.createSenderNotification
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,19 +51,31 @@ class DataSendService : Service() {
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var senderJob: Job? = null
 
+    private val notificationTitle = "NL-Sender - Data Sync"
+    private val notificationId = 3
+    private val notificationChannel = "DATA_SYNC_SERVICE"
+    private var notificationManager: NotificationManager? = null
+    private var isNotificationChanelCreated = false
+
+    private var isConnectedToPortal = false
+
+    override fun onCreate() {
+        super.onCreate()
+        notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        createNLSenderNotificationChannel()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
-            logcat { "Scheduling send data with executor service" }
             if (senderJob == null) {
-                startForeground(SenderNotificationChannelId, createSenderNotification())
+                val initialNotification =
+                    createNLSenderNotification("NL-Sender ", "Data sync service started")
+                startForeground(notificationId, initialNotification)
                 initMQTTClient()
                 sendData()
             }
-        } catch (ex: Exception) {
-            log(
-                message =
-                "Exception on starting the scheduledexecutorservice ${ex.asLog()}"
-            )
+        } catch (e: Exception) {
+            logcat { e.asLog() }
         }
         return START_STICKY
     }
@@ -72,20 +87,35 @@ class DataSendService : Service() {
             clientId = Constants.TEST_IMEI
         ) { isConnected ->
             if (isConnected) {
-                logcat { "Connected" }
+                logcat { "MQTT connected to Cloud" }
+                showNotification("MQTT connected to Cloud")
             } else {
                 logcat { "failed to connect" }
             }
         }
     }
 
+    private fun showNotification(content: String, title: String = notificationTitle) {
+        val mqttNotification = createNLSenderNotification(
+            "$title - " + if (portalMQTTClient.isConnected()) {
+                "Connected"
+            } else {
+                "Disconnected"
+            }, content
+        )
+        notificationManager?.notify(notificationId, mqttNotification)
+    }
+
     private fun sendData() {
         senderJob = externalScope.launch(Dispatchers.IO) {
             localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
+                logcat("MQTT_FILE_TRANSFER") { "Received $canParseEntity" }
+
                 val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") ignitionOnDelay
                 else ignitionOffDelay
 
                 sendDataToPortal(canParseEntity)
+
                 delay(dataPushDelay)
                 logcat("MQTT_FILE_TRANSFER") { "Sending data to portal" }
             }.collect()
@@ -102,7 +132,11 @@ class DataSendService : Service() {
         """.trimIndent()
         logcat { "sendDataToPortal $feedData" }
 
-        portalMQTTClient.publish(Constants.TOPIC_RAW_FEED, mqttPacket.toByteArray())
+        showNotification("Publishing  $mqttPacket") //@todo show only important data like seq no.
+        portalMQTTClient.publish(Constants.TOPIC_RAW_FEED, mqttPacket.toByteArray()) { isSuccess ->
+            val status = if (isSuccess) "Published" else "Failed to publish"
+            showNotification("$status  $mqttPacket")
+        }
     }
 
     private fun createFeed(canFeedEntity: CanParseEntity): String {
@@ -155,16 +189,6 @@ class DataSendService : Service() {
         }
     }
 
-
-    private fun sendOtaBroadcast(response: String) {
-        val dummyResponse =
-            "{\"version\":\"v1.2.3\",\"apps\":[{\"id\":3,\"downloadUrl\":\"https://firebasestorage.googleapis.com/v0/b/nlmdm-e6fdb.appspot.com/o/AndroidCluster%2FProcessor%2Fdemo%2FNL-Processor-Demo?alt=media&token=cb66ce20-b41c-4092-abc8-d809c3a3a318\",\"forceInstall\":false,\"iconUrl\":\"\",\"name\":\"NL-Processor\",\"packageName\":\"com.nlevcluster.processor\",\"version\":\"1.2.3\"}]}"
-        val otaIntent = Intent(Constants.ACTION_OTA_UPDATE_AVAILABLE)
-
-        otaIntent.putExtra(Constants.OTA_DATA, dummyResponse)
-        sendBroadcast(otaIntent)
-    }
-
     private fun returnVehicleStatus(status: String): String {
         return when (status) {
             Ignition.PARK.name -> "0"
@@ -192,6 +216,39 @@ class DataSendService : Service() {
     override fun onBind(intent: Intent): IBinder? {
         return null
     }
+
+    private fun createNLSenderNotification(title: String, content: String): Notification {
+        if (!isNotificationChanelCreated) {
+            createNLSenderNotificationChannel()
+        }
+
+        return NotificationCompat.Builder(
+            this,
+            notificationChannel,
+        )
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(content)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+    }
+
+    private fun createNLSenderNotificationChannel() {
+        val channel = NotificationChannel(
+            notificationChannel,
+            notificationChannel,
+            NotificationManager.IMPORTANCE_NONE,
+        ).apply {
+            description = "For syncing the feed data to the cloud"
+        }
+
+        // Register the channel with the system
+        notificationManager?.let { nm ->
+            nm.createNotificationChannel(channel)
+            isNotificationChanelCreated = true
+        }
+    }
+
 
     override fun onDestroy() {
         senderJob?.cancel()
