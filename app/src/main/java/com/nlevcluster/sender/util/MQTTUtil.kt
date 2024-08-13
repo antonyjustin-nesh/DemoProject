@@ -7,6 +7,7 @@ import com.hivemq.client.mqtt.mqtt5.Mqtt5AsyncClient
 import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5PublishResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import logcat.asLog
 import logcat.logcat
 
 
@@ -22,6 +23,7 @@ class MQTTUtil {
 
     private var _message: MutableStateFlow<MQTTMessage>? = null
     val message get() = _message?.asStateFlow()
+
 
     /**
      * Connects to the broker using given [url], [port], [clientId]
@@ -86,19 +88,15 @@ class MQTTUtil {
      * */
     fun subscribe(topic: String, qos: MqttQos = MqttQos.EXACTLY_ONCE) {
         Log.d(TAG, "subscribe: Subscribing to topic $topic with QoS ${qos.name}")
-
-        requireNotNull(client) { "Client needs to be connected before it can be used to subscribe." }
-
+        checkConnection("subscribe")
         client?.subscribeWith()
             ?.topicFilter(topic)
             ?.qos(qos)
             ?.callback { publish ->
                 val data = publish.payloadAsBytes
-                Log.d(
-                    TAG,
+                logcat(TAG) {
                     "subscribe: Received message on $topic, Message - ${data.decodeToString()}"
-                )
-
+                }
                 _message?.value = MQTTMessage(
                     message = data.decodeToString(),
                     type = "TEXT",
@@ -121,32 +119,33 @@ class MQTTUtil {
             }
     }
 
-    fun publish(topic: String, message: ByteArray, qos: MqttQos = MqttQos.EXACTLY_ONCE) {
-        Log.d(
-            TAG, "publish: Publishing to topic $topic " +
-                    "with message ${message.decodeToString()}"
-        )
-
-        requireNotNull(client) {
-            "Client needs to be connected " +
-                    "before it can be used to subscribe."
+    private fun checkConnection(method: String) {
+        if (client?.state?.isConnected == false) {
+            logcat { "Client needs to be connected before it can be used to $method. " }
+            logcat { "Attempting to reconnect" }
+            client?.connect()
         }
+    }
+
+    fun publish(topic: String, message: ByteArray, qos: MqttQos = MqttQos.EXACTLY_ONCE) {
+        logcat(TAG) { "Publishing to topic $topic " + "with message ${message.decodeToString()}" }
+
+        checkConnection("publish")
 
         client?.publishWith()
             ?.topic(topic)
             ?.payload(message)
             ?.qos(qos)
             ?.send()
-            ?.whenComplete { publish: Mqtt5PublishResult?, throwable: Throwable? ->
+            ?.whenComplete { _: Mqtt5PublishResult?, throwable: Throwable? ->
                 if (throwable != null) {
-                    Log.e(
-                        TAG,
-                        "publish: failed to publish to topic -  $topic, message - $message",
-                        throwable
-                    )
+                    logcat(TAG) {
+                        "publish: failed to publish to topic -  $topic, message - $message \n" +
+                                throwable.asLog()
+                    }
                 } else {
-                    logcat(TAG) { "Published successfully" }
                     // handle successful publish, e.g. logging or incrementing a metric
+                    logcat(TAG) { "Published successfully. topic -  $topic, message - $message " }
                 }
             }
     }
