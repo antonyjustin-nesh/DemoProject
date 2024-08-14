@@ -7,6 +7,7 @@ import com.hivemq.client.mqtt.mqtt5.Mqtt5AsyncClient
 import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5PublishResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import logcat.LogPriority
 import logcat.asLog
 import logcat.logcat
 
@@ -32,7 +33,7 @@ class MQTTUtil {
         clientId: String,
         onConnectionStatusChange: (Boolean) -> Unit
     ) {
-        if (client != null) {
+        if (isConnected()) {
             logcat(TAG) { "connect: The client is already connected. Ignoring the connection request." }
             return
         }
@@ -116,8 +117,8 @@ class MQTTUtil {
     }
 
     private fun checkConnection(method: String) {
-        if (client?.state?.isConnected == false) {
-            logcat { "Client needs to be connected before it can be used to $method. " }
+        if (!isConnected()) {
+            logcat(LogPriority.WARN) { "Client needs to be connected before it can be used to $method. " }
             logcat { "Attempting to reconnect" }
             client?.connect()
         }
@@ -125,29 +126,30 @@ class MQTTUtil {
 
     fun publish(
         topic: String,
-        message: ByteArray,
+        message: String,
         qos: MqttQos = MqttQos.EXACTLY_ONCE,
         onComplete: (isSuccess: Boolean) -> Unit = {}
     ) {
-        logcat(TAG) { "Publishing to topic $topic " + "with message ${message.decodeToString()}" }
+        logcat(TAG) { "Publishing to topic $topic with message $message" }
 
         checkConnection("publish")
 
         client?.publishWith()
             ?.topic(topic)
-            ?.payload(message)
+            ?.payload(message.toByteArray())
             ?.qos(qos)
             ?.send()
-            ?.whenComplete { _: Mqtt5PublishResult?, throwable: Throwable? ->
+            ?.whenComplete { result: Mqtt5PublishResult?, throwable: Throwable? ->
+
                 if (throwable != null) {
-                    logcat(TAG) {
-                        "publish: failed to publish to topic -  $topic, message - $message \n" +
+                    logcat(TAG, LogPriority.ERROR) {
+                        "publish: failed to publish to topic -  $topic\n" +
                                 throwable.asLog()
                     }
                     onComplete(false)
                 } else {
                     // handle successful publish, e.g. logging or incrementing a metric
-                    logcat(TAG) { "Published successfully. topic -  $topic, message - ${message.decodeToString()} " }
+                    logcat(TAG) { "Published successfully. topic -  $topic" }
                     onComplete(true)
                 }
             }

@@ -5,7 +5,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
@@ -33,6 +35,7 @@ import logcat.logcat
 import javax.inject.Inject
 import javax.inject.Named
 
+
 @AndroidEntryPoint
 class DataSendService : Service() {
 
@@ -57,13 +60,36 @@ class DataSendService : Service() {
     private var notificationManager: NotificationManager? = null
     private var isNotificationChanelCreated = false
 
-    private var isConnectedToPortal = false
+    private lateinit var handler: Handler
+    private lateinit var runnable: Runnable
+    private val monitorIntervalMillis: Long = 10_000
 
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         createNLSenderNotificationChannel()
+
+        monitorMQTTConnection()
     }
+
+    private fun monitorMQTTConnection() {
+        handler = Handler(Looper.getMainLooper())
+        runnable = object : Runnable {
+            override fun run() {
+                if (!portalMQTTClient.isConnected()) {
+                    logcat("MQTT_CONNECTION_MONITOR") { "MQTT Connection lost. Attempting to reconnect..." }
+                    initMQTTClient()
+                } else {
+                    logcat("MQTT_CONNECTION_MONITOR") { "MQTT Connection active. No action required." }
+                }
+                handler.postDelayed(this, monitorIntervalMillis)
+            }
+        }
+
+        handler.post(runnable)
+        logcat("MQTT_CONNECTION_MONITOR") { "MQTT Connection monitoring initiated." }
+    }
+
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
@@ -72,7 +98,6 @@ class DataSendService : Service() {
                     createNLSenderNotification("NL-Sender ", "Data sync service started")
                 startForeground(notificationId, initialNotification)
                 initMQTTClient()
-                sendData()
             }
         } catch (e: Exception) {
             logcat { e.asLog() }
@@ -88,9 +113,10 @@ class DataSendService : Service() {
         ) { isConnected ->
             if (isConnected) {
                 logcat { "MQTT connected to Cloud" }
+                sendData()
                 showNotification("MQTT connected to Cloud")
             } else {
-                logcat { "failed to connect" }
+                logcat { "MQTT failed to connect to Cloud" }
             }
         }
     }
@@ -131,11 +157,11 @@ class DataSendService : Service() {
         }
         """.trimIndent()
         logcat { "sendDataToPortal $feedData" }
-
-        showNotification("Publishing  $mqttPacket") //@todo show only important data like seq no.
-        portalMQTTClient.publish(Constants.TOPIC_RAW_FEED, mqttPacket.toByteArray()) { isSuccess ->
+        val messageSize = mqttPacket.toByteArray().size
+        showNotification("Publishing message of $messageSize Bytes") //@todo show only important data like seq no.
+        portalMQTTClient.publish(Constants.TOPIC_RAW_FEED, mqttPacket) { isSuccess ->
             val status = if (isSuccess) "Published" else "Failed to publish"
-            showNotification("$status  $mqttPacket")
+            showNotification("$status message with $messageSize Bytes")
         }
     }
 
@@ -251,6 +277,7 @@ class DataSendService : Service() {
 
 
     override fun onDestroy() {
+        handler.removeCallbacks(runnable)
         senderJob?.cancel()
         senderJob = null
         externalScope.cancel()
