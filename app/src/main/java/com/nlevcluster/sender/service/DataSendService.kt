@@ -58,7 +58,7 @@ class DataSendService : Service() {
     private val notificationId = 3
     private val notificationChannel = "DATA_SYNC_SERVICE"
     private var notificationManager: NotificationManager? = null
-    private var isNotificationChanelCreated = false
+    private var isNotificationChannelCreated = false
 
     private lateinit var handler: Handler
     private lateinit var runnable: Runnable
@@ -244,7 +244,7 @@ class DataSendService : Service() {
     }
 
     private fun createNLSenderNotification(title: String, content: String): Notification {
-        if (!isNotificationChanelCreated) {
+        if (!isNotificationChannelCreated) {
             createNLSenderNotificationChannel()
         }
 
@@ -271,7 +271,7 @@ class DataSendService : Service() {
         // Register the channel with the system
         notificationManager?.let { nm ->
             nm.createNotificationChannel(channel)
-            isNotificationChanelCreated = true
+            isNotificationChannelCreated = true
         }
     }
 
