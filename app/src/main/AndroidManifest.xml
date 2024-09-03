@@ -47,5 +47,7 @@
 
         <service android:name="org.eclipse.paho.android.service.MqttService" />
     </application>
-
+    <queries>
+        <package android:name="com.nlevcluster.nl_logger" />
+    </queries>
 </manifest>

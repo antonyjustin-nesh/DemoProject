@@ -1,7 +1,7 @@
 package com.nlevcluster.sender.logging.di
 
 import com.nlevcluster.sender.logging.LogHelper
-import com.nlevcluster.sender.logging.RoomLogHelper
+import com.nlevcluster.sender.nllogger.NLLoggerLogHelper
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -14,5 +14,5 @@ interface LoggingModule {
 
     @Binds
     @Singleton
-    fun bindLogging(roomLogHelper: RoomLogHelper): LogHelper
+    fun bindLogging(roomLogHelper: NLLoggerLogHelper): LogHelper
 }
