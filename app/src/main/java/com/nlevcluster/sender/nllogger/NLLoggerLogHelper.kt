@@ -3,7 +3,6 @@ package com.nlevcluster.sender.nllogger
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
-import com.nlevcluster.sender.logging.LogHelper
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

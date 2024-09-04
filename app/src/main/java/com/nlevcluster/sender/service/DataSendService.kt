@@ -13,11 +13,10 @@ import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.database.util.Util
-import com.nlevcluster.sender.logging.LogHelper
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.Ignition
 import com.nlevcluster.sender.mqtt.MQTTClient
-import com.nlevcluster.sender.nllogger.LogType
+import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.util.MQTTUtil
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -77,17 +76,26 @@ class DataSendService : Service() {
         runnable = object : Runnable {
             override fun run() {
                 if (!portalMQTTClient.isConnected()) {
-                    logcat("MQTT_CONNECTION_MONITOR") { "MQTT Connection lost. Attempting to reconnect..." }
+                    logHelper.log(
+                        tag = "MQTT_CONNECTION_MONITOR",
+                        message = "MQTT Connection lost. Attempting to reconnect..."
+                    )
                     initMQTTClient()
                 } else {
-                    logcat("MQTT_CONNECTION_MONITOR") { "MQTT Connection active. No action required." }
+                    logHelper.log(
+                        tag = "MQTT_CONNECTION_MONITOR",
+                        message = "MQTT Connection active. No action required."
+                    )
                 }
                 handler.postDelayed(this, monitorIntervalMillis)
             }
         }
 
         handler.post(runnable)
-        logcat("MQTT_CONNECTION_MONITOR") { "MQTT Connection monitoring initiated." }
+        logHelper.log(
+            tag = "MQTT_CONNECTION_MONITOR",
+            message = "MQTT Connection monitoring initiated."
+        )
     }
 
 
@@ -112,11 +120,17 @@ class DataSendService : Service() {
             clientId = Constants.TEST_IMEI
         ) { isConnected ->
             if (isConnected) {
-                logcat { "MQTT connected to Cloud" }
+                logHelper.log(
+                    tag = "Init MQTT client",
+                    message = "initMQTTClient - MQTT connected to Cloud."
+                )
                 sendData()
                 showNotification("MQTT connected to Cloud")
             } else {
-                logcat { "MQTT failed to connect to Cloud" }
+                logHelper.log(
+                    tag = "Init MQTT client",
+                    message = "initMQTTClient - MQTT failed to connect to Cloud."
+                )
             }
         }
     }
@@ -143,7 +157,6 @@ class DataSendService : Service() {
                 sendDataToPortal(canParseEntity)
 
                 delay(dataPushDelay)
-                logcat("MQTT_FILE_TRANSFER") { "Sending data to portal" }
             }.collect()
         }
     }
@@ -157,12 +170,19 @@ class DataSendService : Service() {
         }
         """.trimIndent()
         logcat { "sendDataToPortal $feedData" }
+
         val messageSize = mqttPacket.toByteArray().size
         showNotification("Publishing message of $messageSize Bytes") //@todo show only important data like seq no.
         portalMQTTClient.publish(Constants.TOPIC_RAW_FEED, mqttPacket) { isSuccess ->
             val status = if (isSuccess) "Published" else "Failed to publish"
             showNotification("$status message with $messageSize Bytes")
+            logHelper.log(
+                tag = "Send Data to portal",
+                message = "sendDataToPortal - $status \n $feedData"
+            )
         }
+
+
     }
 
     private fun createFeed(canFeedEntity: CanParseEntity): String {
@@ -233,12 +253,6 @@ class DataSendService : Service() {
         }
     }
 
-    private fun log(message: String) {
-        if (::logHelper.isInitialized) {
-            logHelper.log(LogType.INFO, message)
-        }
-    }
-
     override fun onBind(intent: Intent): IBinder? {
         return null
     }
@@ -272,7 +286,9 @@ class DataSendService : Service() {
         notificationManager?.let { nm ->
             nm.createNotificationChannel(channel)
             isNotificationChannelCreated = true
+            logHelper.log(message = "createNLSenderNotificationChannel - Created notification chennel")
         }
+
     }
 
 

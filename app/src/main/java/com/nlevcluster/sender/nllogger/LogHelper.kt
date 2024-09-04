@@ -1,9 +1,4 @@
-package com.nlevcluster.sender.logging
-
-import com.nlevcluster.sender.nllogger.LogCategory
-import com.nlevcluster.sender.nllogger.LogModule
-import com.nlevcluster.sender.nllogger.LogOwner
-import com.nlevcluster.sender.nllogger.LogType
+package com.nlevcluster.sender.nllogger
 
 interface LogHelper {
 

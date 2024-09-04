@@ -4,7 +4,7 @@ import android.content.Context
 import com.google.gson.Gson
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.entity.CanParseEntity
-import com.nlevcluster.sender.logging.LogHelper
+import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
 import info.mqtt.android.service.MqttAndroidClient
 import info.mqtt.android.service.QoS

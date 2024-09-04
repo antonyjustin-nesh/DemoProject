@@ -1,6 +1,6 @@
-package com.nlevcluster.sender.logging.di
+package com.nlevcluster.sender.nllogger.di
 
-import com.nlevcluster.sender.logging.LogHelper
+import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.NLLoggerLogHelper
 import dagger.Binds
 import dagger.Module
