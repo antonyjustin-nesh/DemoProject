@@ -4,10 +4,10 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.nlevcluster.sender.model.Log
+import com.nlevcluster.sender.nllogger.LogType
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toJavaLocalDateTime
 import kotlinx.datetime.toLocalDateTime
-import com.nlevcluster.sender.database.LogType
 import java.time.format.DateTimeFormatter
 
 @Entity(tableName = "log")

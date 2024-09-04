@@ -11,13 +11,13 @@ import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
-import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.database.util.Util
 import com.nlevcluster.sender.logging.LogHelper
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.Ignition
 import com.nlevcluster.sender.mqtt.MQTTClient
+import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.util.MQTTUtil
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope

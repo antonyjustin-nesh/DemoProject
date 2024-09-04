@@ -1,8 +1,8 @@
 package com.nlevcluster.sender.database.util
 
 import androidx.room.TypeConverter
-import com.nlevcluster.sender.database.LogType
 import com.nlevcluster.sender.model.EvMode
+import com.nlevcluster.sender.nllogger.LogType
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent

@@ -1,4 +1,4 @@
-package com.nlevcluster.sender.database
+package com.nlevcluster.sender.nllogger
 
 enum class LogType {
     INFO,
