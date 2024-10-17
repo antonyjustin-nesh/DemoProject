@@ -1,5 +1,6 @@
 package com.nlevcluster.sender.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,6 +9,7 @@ import android.content.Intent
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
@@ -34,97 +36,101 @@ import logcat.logcat
 import javax.inject.Inject
 import javax.inject.Named
 
+const val IGNITION_ON_DELAY = 60_000L
+const val IGNITION_OFF_DELAY = 180_000L
+const val INTERVAL_IN_MILLIS = 10_000L
+const val NOTIFICATION_ID = 3
 
 @AndroidEntryPoint
 class DataSendService : Service() {
+    
+    private val portalMQTTClient = MQTTUtil()
 
     @Inject
     lateinit var logHelper: LogHelper
-
-    private val portalMQTTClient = MQTTUtil()
 
     @Inject
     @Named("local")
     lateinit var localMqttClient: MQTTClient
 
-    private var ignitionOnDelay = 5_000L
-    private var ignitionOffDelay = 60_000L
-
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var senderJob: Job? = null
 
     private val notificationTitle = "NL-Sender - Data Sync"
-    private val notificationId = 3
     private val notificationChannel = "DATA_SYNC_SERVICE"
     private var notificationManager: NotificationManager? = null
     private var isNotificationChannelCreated = false
 
-    private lateinit var handler: Handler
-    private lateinit var runnable: Runnable
-    private val monitorIntervalMillis: Long = 10_000
+    private var handler: Handler? = null
+    private var runnable: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         createNLSenderNotificationChannel()
-
-        monitorMQTTConnection()
     }
 
-    private fun monitorMQTTConnection() {
-        handler = Handler(Looper.getMainLooper())
-        runnable = object : Runnable {
-            override fun run() {
-                if (!portalMQTTClient.isConnected()) {
-                    logHelper.log(
-                        tag = "MQTT_CONNECTION_MONITOR",
-                        message = "MQTT Connection lost. Attempting to reconnect..."
-                    )
-                    initMQTTClient()
-                } else {
-                    logHelper.log(
-                        tag = "MQTT_CONNECTION_MONITOR",
-                        message = "MQTT Connection active. No action required."
-                    )
+    private fun monitorMQTTConnection(imei: String) {
+        externalScope.launch(Dispatchers.IO) {
+            handler = Handler(Looper.getMainLooper())
+            runnable = object : Runnable {
+                @SuppressLint("LogNotTimber")
+                override fun run() {
+                    if (!portalMQTTClient.isConnected()) {
+                        logHelper.log(
+                            tag = "MQTT_CONNECTION_MONITOR",
+                            message = "MQTT Connection lost. Attempting to reconnect..."
+                        )
+                        initMQTTClient(imei)
+                    } else {
+                        Log.i(
+                            "MQTT_CONNECTION_MONITOR",
+                            "MQTT Connection active. No action required."
+                        )
+                    }
+                    handler?.postDelayed(this, INTERVAL_IN_MILLIS)
                 }
-                handler.postDelayed(this, monitorIntervalMillis)
             }
+
+            runnable?.let { handler?.post(runnable as Runnable) }
+            logHelper.log(
+                tag = "MQTT_CONNECTION_MONITOR",
+                message = "MQTT Connection monitoring initiated."
+            )
         }
-
-        handler.post(runnable)
-        logHelper.log(
-            tag = "MQTT_CONNECTION_MONITOR",
-            message = "MQTT Connection monitoring initiated."
-        )
     }
-
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
-            if (senderJob == null) {
-                val initialNotification =
-                    createNLSenderNotification("NL-Sender ", "Data sync service started")
-                startForeground(notificationId, initialNotification)
-                initMQTTClient()
+            val initialNotification =
+                createNLSenderNotification("NL-Sender ", "Data sync service started")
+            startForeground(NOTIFICATION_ID, initialNotification)
+
+            val imei = intent?.getStringExtra("IMEI") //later try to fetch from system property
+            if (senderJob == null && imei != null) {
+                logcat { "Received imei Number - $imei" }
+                monitorMQTTConnection(imei)
+                return START_REDELIVER_INTENT
             }
         } catch (e: Exception) {
             logcat { e.asLog() }
         }
+
         return START_STICKY
     }
 
-    private fun initMQTTClient() {
+    private fun initMQTTClient(imei: String) {
         portalMQTTClient.connect(
             url = Constants.MQTT_PORTAL_URL,
             port = Constants.MQTT_PORTAL_PORT,
-            clientId = Constants.TEST_IMEI
+            clientId = imei + this.packageName
         ) { isConnected ->
             if (isConnected) {
                 logHelper.log(
                     tag = "Init MQTT client",
                     message = "initMQTTClient - MQTT connected to Cloud."
                 )
-                sendData()
+                sendData(imei)
                 showNotification("MQTT connected to Cloud")
             } else {
                 logHelper.log(
@@ -143,26 +149,26 @@ class DataSendService : Service() {
                 "Disconnected"
             }, content
         )
-        notificationManager?.notify(notificationId, mqttNotification)
+        notificationManager?.notify(NOTIFICATION_ID, mqttNotification)
     }
 
-    private fun sendData() {
+    private fun sendData(imei: String) {
         senderJob = externalScope.launch(Dispatchers.IO) {
             localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
                 logcat("MQTT_FILE_TRANSFER") { "Received $canParseEntity" }
 
-                val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") ignitionOnDelay
-                else ignitionOffDelay
+                val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") IGNITION_ON_DELAY
+                else IGNITION_OFF_DELAY
 
-                sendDataToPortal(canParseEntity)
+                sendDataToPortal(canParseEntity, imei)
 
                 delay(dataPushDelay)
             }.collect()
         }
     }
 
-    private fun sendDataToPortal(canFeed: CanParseEntity) {
-        val feedData = createFeed(canFeed)
+    private fun sendDataToPortal(canFeed: CanParseEntity, imei: String) {
+        val feedData = createFeed(canFeed, imei)
         val mqttPacket = """
         {
             "type":"${Constants.TOPIC_RAW_FEED}",
@@ -172,7 +178,7 @@ class DataSendService : Service() {
         logcat { "sendDataToPortal $feedData" }
 
         val messageSize = mqttPacket.toByteArray().size
-        showNotification("Publishing message of $messageSize Bytes") //@todo show only important data like seq no.
+        showNotification("Publishing message of $messageSize Bytes") //Show only important data like seq no.
         portalMQTTClient.publish(Constants.TOPIC_RAW_FEED, mqttPacket) { isSuccess ->
             val status = if (isSuccess) "Published" else "Failed to publish"
             showNotification("$status message with $messageSize Bytes")
@@ -181,16 +187,15 @@ class DataSendService : Service() {
                 message = "sendDataToPortal - $status \n $feedData"
             )
         }
-
-
     }
 
-    private fun createFeed(canFeedEntity: CanParseEntity): String {
+    private fun createFeed(canFeedEntity: CanParseEntity, imei: String): String {
         val gearPos = when (canFeedEntity.evMode) {
             EvMode.SPORTS.mode -> "1"
             EvMode.POWER.mode -> "2"
             else -> "0"
         }
+
         //Vehicle Mode P/N/D/R
         val vehicleStatus = when (canFeedEntity.ignition) {
             Ignition.REVERSE.name -> "1"
@@ -198,10 +203,13 @@ class DataSendService : Service() {
             Ignition.NEUTRAL.name -> "2"
             else -> "0"
         }
+
         canFeedEntity.apply {
+            val moving = if (speed == 0) 0 else 1
+
             return """
             {
-              "imei": "359214420438966",
+              "imei": "$imei",
               "sequenceNumber": "$id",
               "latitude": "$latitude",
               "longitude": "$longitude",
@@ -212,8 +220,8 @@ class DataSendService : Service() {
               "heading": "34",
               "noOfSat": "5",
               "mainPowerStatus": "1",
-              "ignitionStatus": "${getIgnitionStatus(ignitionStatus)}",
-              "movementStatus": "1",
+              "ignitionStatus": "${getIgnitionStatus(ignition)}",
+              "movementStatus": "$moving",
               "vehicleStatus": "${returnVehicleStatus(ignitionStatus)}",
               "interBatteryVoltage": "3.9",
               "interBatteryPercentage": "$soc",
@@ -286,14 +294,12 @@ class DataSendService : Service() {
         notificationManager?.let { nm ->
             nm.createNotificationChannel(channel)
             isNotificationChannelCreated = true
-            logHelper.log(message = "createNLSenderNotificationChannel - Created notification chennel")
+            logHelper.log(message = "createNLSenderNotificationChannel - Created notification channel")
         }
-
     }
 
-
     override fun onDestroy() {
-        handler.removeCallbacks(runnable)
+        runnable?.let { handler?.removeCallbacks(it) }
         senderJob?.cancel()
         senderJob = null
         externalScope.cancel()
