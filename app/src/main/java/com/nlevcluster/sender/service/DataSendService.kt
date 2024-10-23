@@ -53,6 +53,9 @@ class DataSendService : Service() {
     @Named("local")
     lateinit var localMqttClient: MQTTClient
 
+    private var ignitionOnDelay = 60_000L
+    private var ignitionOffDelay = 3 * 60_000L
+
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var senderJob: Job? = null
 
@@ -62,7 +65,8 @@ class DataSendService : Service() {
     private var isNotificationChannelCreated = false
 
     private var handler: Handler? = null
-    private var runnable: Runnable? = null
+    private var monitorMQTTConnectionRunnable: Runnable? = null
+    private val monitorIntervalMillis: Long = 10_000
 
     override fun onCreate() {
         super.onCreate()
@@ -71,25 +75,38 @@ class DataSendService : Service() {
     }
 
     private fun monitorMQTTConnection(imei: String) {
-        externalScope.launch(Dispatchers.IO) {
-            handler = Handler(Looper.getMainLooper())
-            runnable = object : Runnable {
-                @SuppressLint("LogNotTimber")
-                override fun run() {
-                    if (!portalMQTTClient.isConnected()) {
-                        logHelper.log(
-                            tag = "MQTT_CONNECTION_MONITOR",
-                            message = "MQTT Connection lost. Attempting to reconnect..."
-                        )
-                        initMQTTClient(imei)
-                    } else {
-                        Log.i(
-                            "MQTT_CONNECTION_MONITOR",
-                            "MQTT Connection active. No action required."
-                        )
-                    }
-                    handler?.postDelayed(this, INTERVAL_IN_MILLIS)
+        handler = Handler(Looper.getMainLooper())
+        monitorMQTTConnectionRunnable?.let { handler?.removeCallbacks(it) }
+
+        monitorMQTTConnectionRunnable = object : Runnable {
+            override fun run() {
+                if (!portalMQTTClient.isConnected()) {
+                    logHelper.log(
+                        tag = "MQTT_CONNECTION_MONITOR",
+                        message = "Portal MQTT Connection lost. Attempting to reconnect..."
+                    )
+                    initMQTTClient(imei)
+                } else {
+                    logHelper.log(
+                        tag = "MQTT_CONNECTION_MONITOR",
+                        message = "Portal MQTT Connection active. No action required."
+                    )
                 }
+
+                if (!localMqttClient.isConnected()) {
+                    logHelper.log(
+                        tag = "MQTT_CONNECTION_MONITOR",
+                        message = "Local MQTT Connection lost. Attempting to reconnect..."
+                    )
+                    initLocalMQTTClient()
+                } else {
+                    logHelper.log(
+                        tag = "MQTT_CONNECTION_MONITOR",
+                        message = "Local MQTT Connection active. No action required."
+                    )
+                }
+
+                handler?.postDelayed(this, monitorIntervalMillis)
             }
 
             runnable?.let { handler?.post(runnable as Runnable) }
@@ -98,6 +115,12 @@ class DataSendService : Service() {
                 message = "MQTT Connection monitoring initiated."
             )
         }
+
+        monitorMQTTConnectionRunnable?.let { handler?.post(it) }
+        logHelper.log(
+            tag = "MQTT_CONNECTION_MONITOR",
+            message = "MQTT Connection monitoring initiated."
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -130,7 +153,6 @@ class DataSendService : Service() {
                     tag = "Init MQTT client",
                     message = "initMQTTClient - MQTT connected to Cloud."
                 )
-                sendData(imei)
                 showNotification("MQTT connected to Cloud")
             } else {
                 logHelper.log(
@@ -141,16 +163,9 @@ class DataSendService : Service() {
         }
     }
 
-    private fun showNotification(content: String, title: String = notificationTitle) {
-        val mqttNotification = createNLSenderNotification(
-            "$title - " + if (portalMQTTClient.isConnected()) {
-                "Connected"
-            } else {
-                "Disconnected"
-            }, content
-        )
-        notificationManager?.notify(NOTIFICATION_ID, mqttNotification)
-    }
+    private fun initLocalMQTTClient() {
+        senderJob?.cancel()
+        senderJob = null
 
     private fun sendData(imei: String) {
         senderJob = externalScope.launch(Dispatchers.IO) {
@@ -167,8 +182,20 @@ class DataSendService : Service() {
         }
     }
 
+    private fun showNotification(content: String, title: String = notificationTitle) {
+        val mqttNotification = createNLSenderNotification(
+            "$title - " + if (portalMQTTClient.isConnected()) {
+                "Connected"
+            } else {
+                "Disconnected"
+            }, content
+        )
+        notificationManager?.notify(notificationId, mqttNotification)
+    }
+
+
     private fun sendDataToPortal(canFeed: CanParseEntity, imei: String) {
-        val feedData = createFeed(canFeed, imei)
+        val feedData = createFeed(canFeed)
         val mqttPacket = """
         {
             "type":"${Constants.TOPIC_RAW_FEED}",
@@ -299,7 +326,10 @@ class DataSendService : Service() {
     }
 
     override fun onDestroy() {
-        runnable?.let { handler?.removeCallbacks(it) }
+        monitorMQTTConnectionRunnable?.let { handler?.removeCallbacks(it) }
+        monitorMQTTConnectionRunnable = null
+        handler = null
+
         senderJob?.cancel()
         senderJob = null
         externalScope.cancel()
