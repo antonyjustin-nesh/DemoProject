@@ -196,8 +196,8 @@ class MQTTClient @Inject constructor(
         val options = MqttConnectOptions()
         options.userName = username
         options.password = password.toCharArray()
-        options.isAutomaticReconnect = true
-        options.isCleanSession = false
+        options.isAutomaticReconnect = false
+        options.isCleanSession = true
 
         try {
             mqttAndroidClient.connect(options, null, mqttConnect)

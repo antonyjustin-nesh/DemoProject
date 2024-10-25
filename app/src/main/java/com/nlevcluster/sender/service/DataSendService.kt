@@ -1,6 +1,5 @@
 package com.nlevcluster.sender.service
 
-import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,7 +8,6 @@ import android.content.Intent
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
@@ -38,7 +36,7 @@ import javax.inject.Named
 
 const val IGNITION_ON_DELAY = 60_000L
 const val IGNITION_OFF_DELAY = 180_000L
-const val INTERVAL_IN_MILLIS = 10_000L
+const val INTERVAL_IN_MILLIS = 15_000L
 const val NOTIFICATION_ID = 3
 
 @AndroidEntryPoint
@@ -53,9 +51,6 @@ class DataSendService : Service() {
     @Named("local")
     lateinit var localMqttClient: MQTTClient
 
-    private var ignitionOnDelay = 60_000L
-    private var ignitionOffDelay = 3 * 60_000L
-
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var senderJob: Job? = null
 
@@ -66,7 +61,6 @@ class DataSendService : Service() {
 
     private var handler: Handler? = null
     private var monitorMQTTConnectionRunnable: Runnable? = null
-    private val monitorIntervalMillis: Long = 10_000
 
     override fun onCreate() {
         super.onCreate()
@@ -85,7 +79,7 @@ class DataSendService : Service() {
                         tag = "MQTT_CONNECTION_MONITOR",
                         message = "Portal MQTT Connection lost. Attempting to reconnect..."
                     )
-                    initMQTTClient(imei)
+                    initPortalMQTTClient(imei)
                 } else {
                     logHelper.log(
                         tag = "MQTT_CONNECTION_MONITOR",
@@ -98,7 +92,7 @@ class DataSendService : Service() {
                         tag = "MQTT_CONNECTION_MONITOR",
                         message = "Local MQTT Connection lost. Attempting to reconnect..."
                     )
-                    initLocalMQTTClient()
+                    initLocalMQTTClient(imei)
                 } else {
                     logHelper.log(
                         tag = "MQTT_CONNECTION_MONITOR",
@@ -106,14 +100,8 @@ class DataSendService : Service() {
                     )
                 }
 
-                handler?.postDelayed(this, monitorIntervalMillis)
+                handler?.postDelayed(this, INTERVAL_IN_MILLIS)
             }
-
-            runnable?.let { handler?.post(runnable as Runnable) }
-            logHelper.log(
-                tag = "MQTT_CONNECTION_MONITOR",
-                message = "MQTT Connection monitoring initiated."
-            )
         }
 
         monitorMQTTConnectionRunnable?.let { handler?.post(it) }
@@ -129,11 +117,23 @@ class DataSendService : Service() {
                 createNLSenderNotification("NL-Sender ", "Data sync service started")
             startForeground(NOTIFICATION_ID, initialNotification)
 
-            val imei = intent?.getStringExtra("IMEI") //later try to fetch from system property
-            if (senderJob == null && imei != null) {
-                logcat { "Received imei Number - $imei" }
-                monitorMQTTConnection(imei)
-                return START_REDELIVER_INTENT
+            val sharedPref = getSharedPreferences("properties", MODE_PRIVATE)
+            val imei: String? = intent?.getStringExtra("IMEI") ?: sharedPref.getString("imei", null)
+            imei?.let { imeiValue ->
+                // Check if IMEI is already stored, if not, save it
+                if (sharedPref.getString("imei", null) == null) {
+                    with(sharedPref.edit()) {
+                        putString("imei", imeiValue)
+                        commit()
+                    }
+                }
+
+                if (senderJob == null) {
+                    logcat { "Received imei Number - $imei" }
+                    monitorMQTTConnection(imei)
+                    initPortalMQTTClient(imei)
+                    return START_REDELIVER_INTENT
+                }
             }
         } catch (e: Exception) {
             logcat { e.asLog() }
@@ -142,7 +142,7 @@ class DataSendService : Service() {
         return START_STICKY
     }
 
-    private fun initMQTTClient(imei: String) {
+    private fun initPortalMQTTClient(imei: String) {
         portalMQTTClient.connect(
             url = Constants.MQTT_PORTAL_URL,
             port = Constants.MQTT_PORTAL_PORT,
@@ -151,23 +151,23 @@ class DataSendService : Service() {
             if (isConnected) {
                 logHelper.log(
                     tag = "Init MQTT client",
-                    message = "initMQTTClient - MQTT connected to Cloud."
+                    message = "initPortalMQTTClient - MQTT connected to Cloud."
                 )
                 showNotification("MQTT connected to Cloud")
             } else {
                 logHelper.log(
                     tag = "Init MQTT client",
-                    message = "initMQTTClient - MQTT failed to connect to Cloud."
+                    message = "initPortalMQTTClient - MQTT failed to connect to Cloud."
                 )
+                showNotification("MQTT not connected to Cloud")
             }
         }
     }
 
-    private fun initLocalMQTTClient() {
+    private fun initLocalMQTTClient(imei: String) {
         senderJob?.cancel()
         senderJob = null
 
-    private fun sendData(imei: String) {
         senderJob = externalScope.launch(Dispatchers.IO) {
             localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
                 logcat("MQTT_FILE_TRANSFER") { "Received $canParseEntity" }
@@ -190,12 +190,12 @@ class DataSendService : Service() {
                 "Disconnected"
             }, content
         )
-        notificationManager?.notify(notificationId, mqttNotification)
+        notificationManager?.notify(NOTIFICATION_ID, mqttNotification)
     }
 
 
     private fun sendDataToPortal(canFeed: CanParseEntity, imei: String) {
-        val feedData = createFeed(canFeed)
+        val feedData = createFeed(canFeed, imei)
         val mqttPacket = """
         {
             "type":"${Constants.TOPIC_RAW_FEED}",
