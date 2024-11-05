@@ -1,6 +1,5 @@
 package com.nlevcluster.sender.service
 
-import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,7 +8,6 @@ import android.content.Intent
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
@@ -40,7 +38,7 @@ import javax.inject.Named
 
 const val IGNITION_ON_DELAY = 60_000L
 const val IGNITION_OFF_DELAY = 180_000L
-const val INTERVAL_IN_MILLIS = 10_000L
+const val INTERVAL_IN_MILLIS = 15_000L
 const val NOTIFICATION_ID = 3
 
 @AndroidEntryPoint
@@ -68,7 +66,7 @@ class DataSendService : Service() {
     private var isNotificationChannelCreated = false
 
     private var handler: Handler? = null
-    private var runnable: Runnable? = null
+    private var monitorMQTTConnectionRunnable: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -77,33 +75,46 @@ class DataSendService : Service() {
     }
 
     private fun monitorMQTTConnection(imei: String) {
-        externalScope.launch(Dispatchers.IO) {
-            handler = Handler(Looper.getMainLooper())
-            runnable = object : Runnable {
-                @SuppressLint("LogNotTimber")
-                override fun run() {
-                    if (!portalMQTTClient.isConnected()) {
-                        logHelper.log(
-                            tag = "MQTT_CONNECTION_MONITOR",
-                            message = "MQTT Connection lost. Attempting to reconnect..."
-                        )
-                        initMQTTClient(imei)
-                    } else {
-                        Log.i(
-                            "MQTT_CONNECTION_MONITOR",
-                            "MQTT Connection active. No action required."
-                        )
-                    }
-                    handler?.postDelayed(this, INTERVAL_IN_MILLIS)
-                }
-            }
+        handler = Handler(Looper.getMainLooper())
+        monitorMQTTConnectionRunnable?.let { handler?.removeCallbacks(it) }
 
-            runnable?.let { handler?.post(runnable as Runnable) }
-            logHelper.log(
-                tag = "MQTT_CONNECTION_MONITOR",
-                message = "MQTT Connection monitoring initiated."
-            )
+        monitorMQTTConnectionRunnable = object : Runnable {
+            override fun run() {
+                if (!portalMQTTClient.isConnected()) {
+                    logHelper.log(
+                        tag = "MQTT_CONNECTION_MONITOR",
+                        message = "Portal MQTT Connection lost. Attempting to reconnect..."
+                    )
+                    initPortalMQTTClient(imei)
+                } else {
+                    logHelper.log(
+                        tag = "MQTT_CONNECTION_MONITOR",
+                        message = "Portal MQTT Connection active. No action required."
+                    )
+                }
+
+                if (!localMqttClient.isConnected()) {
+                    logHelper.log(
+                        tag = "MQTT_CONNECTION_MONITOR",
+                        message = "Local MQTT Connection lost. Attempting to reconnect..."
+                    )
+                    initLocalMQTTClient(imei)
+                } else {
+                    logHelper.log(
+                        tag = "MQTT_CONNECTION_MONITOR",
+                        message = "Local MQTT Connection active. No action required."
+                    )
+                }
+
+                handler?.postDelayed(this, INTERVAL_IN_MILLIS)
+            }
         }
+
+        monitorMQTTConnectionRunnable?.let { handler?.post(it) }
+        logHelper.log(
+            tag = "MQTT_CONNECTION_MONITOR",
+            message = "MQTT Connection monitoring initiated."
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -112,11 +123,23 @@ class DataSendService : Service() {
                 createNLSenderNotification("NL-Sender ", "Data sync service started")
             startForeground(NOTIFICATION_ID, initialNotification)
 
-            val imei = intent?.getStringExtra("IMEI") //later try to fetch from system property
-            if (senderJob == null && imei != null) {
-                logcat { "Received imei Number - $imei" }
-                monitorMQTTConnection(imei)
-                return START_REDELIVER_INTENT
+            val sharedPref = getSharedPreferences("properties", MODE_PRIVATE)
+            val imei: String? = intent?.getStringExtra("IMEI") ?: sharedPref.getString("imei", null)
+            imei?.let { imeiValue ->
+                // Check if IMEI is already stored, if not, save it
+                if (sharedPref.getString("imei", null) == null) {
+                    with(sharedPref.edit()) {
+                        putString("imei", imeiValue)
+                        commit()
+                    }
+                }
+
+                if (senderJob == null) {
+                    logcat { "Received imei Number - $imei" }
+                    monitorMQTTConnection(imei)
+                    initPortalMQTTClient(imei)
+                    return START_REDELIVER_INTENT
+                }
             }
         } catch (e: Exception) {
             logcat { e.asLog() }
@@ -146,6 +169,24 @@ class DataSendService : Service() {
                     )
                 }
             }
+        }
+    }
+
+    private fun initLocalMQTTClient(imei: String) {
+        senderJob?.cancel()
+        senderJob = null
+
+        senderJob = externalScope.launch(Dispatchers.IO) {
+            localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
+                logcat("MQTT_FILE_TRANSFER") { "Received $canParseEntity" }
+
+                val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") IGNITION_ON_DELAY
+                else IGNITION_OFF_DELAY
+
+                sendDataToPortal(canParseEntity, imei)
+
+                delay(dataPushDelay)
+            }.collect()
         }
     }
 
@@ -310,7 +351,10 @@ class DataSendService : Service() {
     }
 
     override fun onDestroy() {
-        runnable?.let { handler?.removeCallbacks(it) }
+        monitorMQTTConnectionRunnable?.let { handler?.removeCallbacks(it) }
+        monitorMQTTConnectionRunnable = null
+        handler = null
+
         senderJob?.cancel()
         senderJob = null
         externalScope.cancel()

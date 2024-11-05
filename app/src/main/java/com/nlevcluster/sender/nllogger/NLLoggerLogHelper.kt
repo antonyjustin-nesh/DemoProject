@@ -32,6 +32,8 @@ class NLLoggerLogHelper @Inject constructor(
         category: LogCategory,
         module: LogModule
     ) {
+        logcat(tag = tag) { message }
+
         externalScope.launch(Dispatchers.IO) {
             val values = ContentValues().apply {
                 put(NLLoggerConstants.LOG_TYPE, type.name)

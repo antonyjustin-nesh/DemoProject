@@ -111,7 +111,7 @@ class MQTTClient @Inject constructor(
      */
     private val defaultMqttConnect = object : IMqttActionListener {
         override fun onSuccess(asyncActionToken: IMqttToken?) {
-            logHelper.log(LogType.INFO, "MQTT connection success with token $asyncActionToken")
+            logHelper.log(LogType.INFO, "Local MQTT connection success with token $asyncActionToken")
             topicSubscription(feedTopic)
             if(feedTopic == Constants.TOPIC_RAW_FEED){
                 topicSubscription(fileTopic)
@@ -196,8 +196,8 @@ class MQTTClient @Inject constructor(
         val options = MqttConnectOptions()
         options.userName = username
         options.password = password.toCharArray()
-        options.isAutomaticReconnect = true
-        options.isCleanSession = false
+        options.isAutomaticReconnect = false
+        options.isCleanSession = true
 
         try {
             mqttAndroidClient.connect(options, null, mqttConnect)
@@ -212,8 +212,8 @@ class MQTTClient @Inject constructor(
      * @param mqttClient
      * @return mqttconnectivitystatus
      */
-    fun isConnected(mqttClient: MqttAndroidClient): Boolean {
-        return mqttClient.isConnected
+    fun isConnected(): Boolean {
+        return mqttAndroidClient.isConnected
     }
 
     /**
