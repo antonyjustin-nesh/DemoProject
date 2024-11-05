@@ -148,7 +148,7 @@ class DataSendService : Service() {
         return START_STICKY
     }
 
-    private  fun initMQTTClient(imei: String) {
+    private  fun initPortalMQTTClient(imei: String) {
         externalScope.launch {
             portalMQTTClient.connect(
                 url = nlDataStore.mqttFeedUrl() ?: "",
