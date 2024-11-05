@@ -18,7 +18,7 @@ class ConfigService : IntentService("ConfigService") {
     lateinit var nlDataStore: NLDataStore
 
     companion object {
-        const val DEFAULT_IGN_ON_DELAY = 5000
+        const val DEFAULT_IGN_ON_DELAY = 15000
         const val DEFAULT_IGN_OFF_DELAY = 60000
     }
 
