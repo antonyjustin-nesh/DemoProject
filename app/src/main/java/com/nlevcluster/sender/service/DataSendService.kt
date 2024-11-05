@@ -19,7 +19,9 @@ import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.Ignition
 import com.nlevcluster.sender.mqtt.MQTTClient
 import com.nlevcluster.sender.nllogger.LogHelper
+import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.util.MQTTUtil
+import com.nlevcluster.sender.util.NLDataStore
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +47,10 @@ const val NOTIFICATION_ID = 3
 class DataSendService : Service() {
     
     private val portalMQTTClient = MQTTUtil()
+
+    @Inject
+    lateinit var nlDataStore: NLDataStore
+
 
     @Inject
     lateinit var logHelper: LogHelper
@@ -119,24 +125,26 @@ class DataSendService : Service() {
         return START_STICKY
     }
 
-    private fun initMQTTClient(imei: String) {
-        portalMQTTClient.connect(
-            url = Constants.MQTT_PORTAL_URL,
-            port = Constants.MQTT_PORTAL_PORT,
-            clientId = imei + this.packageName
-        ) { isConnected ->
-            if (isConnected) {
-                logHelper.log(
-                    tag = "Init MQTT client",
-                    message = "initMQTTClient - MQTT connected to Cloud."
-                )
-                sendData(imei)
-                showNotification("MQTT connected to Cloud")
-            } else {
-                logHelper.log(
-                    tag = "Init MQTT client",
-                    message = "initMQTTClient - MQTT failed to connect to Cloud."
-                )
+    private  fun initMQTTClient(imei: String) {
+        externalScope.launch {
+            portalMQTTClient.connect(
+                url = nlDataStore.mqttFeedUrl() ?: "",
+                port = Constants.MQTT_PORTAL_PORT,
+                clientId = imei + this@DataSendService.packageName
+            ) { isConnected ->
+                if (isConnected) {
+                    logHelper.log(
+                        tag = "Init MQTT client",
+                        message = "initMQTTClient - MQTT connected to Cloud."
+                    )
+                    sendData(imei)
+                    showNotification("MQTT connected to Cloud")
+                } else {
+                    logHelper.log(
+                        tag = "Init MQTT client",
+                        message = "initMQTTClient - MQTT failed to connect to Cloud."
+                    )
+                }
             }
         }
     }
@@ -156,13 +164,16 @@ class DataSendService : Service() {
         senderJob = externalScope.launch(Dispatchers.IO) {
             localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
                 logcat("MQTT_FILE_TRANSFER") { "Received $canParseEntity" }
+                val dataPushDelay =
+                    if (canParseEntity.ignitionStatus == "ON") nlDataStore.ignitionOnDelay()
+                    else nlDataStore.ignitionOffDelay()
 
-                val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") IGNITION_ON_DELAY
-                else IGNITION_OFF_DELAY
-
-                sendDataToPortal(canParseEntity, imei)
-
-                delay(dataPushDelay)
+                if (dataPushDelay != null) {
+                    sendDataToPortal(canParseEntity, imei)
+                    delay(dataPushDelay.toLong())
+                } else {
+                    logHelper.log(LogType.ERROR, "Data push delay is null")
+                }
             }.collect()
         }
     }

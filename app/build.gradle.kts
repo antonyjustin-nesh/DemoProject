@@ -112,6 +112,7 @@ dependencies {
     // HiveMQ Client
     implementation("com.hivemq:hivemq-mqtt-client-shaded:1.3.3")
 
+    implementation ("androidx.datastore:datastore-preferences:1.0.0")
 }
 
 // Allow references to generated code
