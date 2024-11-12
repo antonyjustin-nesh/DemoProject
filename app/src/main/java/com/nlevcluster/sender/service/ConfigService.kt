@@ -30,11 +30,13 @@ class ConfigService : IntentService("ConfigService") {
 
             logcat { " ignOnDelay $ignOnDelay, ignOffDelay $ignOffDelay, mqttFeedUrl $mqttFeedUrl" }
             CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                if (mqttFeedUrl != null) {
-                    nlDataStore.setMqttFeedUrl(mqttFeedUrl)
-                }
                 nlDataStore.setIgnitionOnDelay(ignOnDelay)
                 nlDataStore.setIgnitionOffDelay(ignOffDelay)
+
+                if (mqttFeedUrl != null) {
+                    nlDataStore.setMqttFeedUrl(mqttFeedUrl)
+                    stopService(Intent(this@ConfigService, DataSendService::class.java))
+                }
             }
         }
 
