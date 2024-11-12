@@ -17,4 +17,5 @@ data class CanFeed(
     var currentLocation: LocationInfo? = null,
     val usbState: UsbState?,
     val createdDate: Long,
+    val obd2: OBD2
 )

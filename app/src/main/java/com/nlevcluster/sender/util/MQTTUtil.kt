@@ -1,26 +1,27 @@
 package com.nlevcluster.sender.util
 
+import android.annotation.SuppressLint
 import android.util.Log
 import com.hivemq.client.mqtt.MqttClient
 import com.hivemq.client.mqtt.datatypes.MqttQos
+import com.hivemq.client.mqtt.lifecycle.MqttClientAutoReconnect
 import com.hivemq.client.mqtt.mqtt5.Mqtt5AsyncClient
 import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5PublishResult
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import logcat.LogPriority
 import logcat.asLog
 import logcat.logcat
+import java.util.concurrent.TimeUnit
 
-
+private const val MIN_RECONNECT_DELAY = 15L
+private const val MAX_RECONNECT_DELAY = 60L
+private const val KEEP_ALIVE = 3600
+private const val TAG = "MQTT_UTIL"
 /**
  *
  * */
+@SuppressLint("LogNotTimber")
 class MQTTUtil {
-    private val TAG = "MQTT_UTIL"
     private var client: Mqtt5AsyncClient? = null
-
-    private var _message: MutableStateFlow<MQTTMessage>? = null
-    val message get() = _message?.asStateFlow()
 
     fun isConnected(): Boolean = client?.state?.isConnected ?: false
 
@@ -38,15 +39,20 @@ class MQTTUtil {
             return
         }
 
-        client = MqttClient.builder()
-            .useMqttVersion5()
-            .identifier(clientId)
-            .serverHost(url)
-            .serverPort(port)
-//            .sslWithDefaultConfig()
-            .buildAsync()
+        if(client == null) {
+            client = MqttClient.builder()
+                .useMqttVersion5()
+                .identifier(clientId)
+                .serverHost(url)
+                .serverPort(port)
+                //.automaticReconnect(MqttClientAutoReconnect.builder()
+                  //  .initialDelay(MIN_RECONNECT_DELAY, TimeUnit.MILLISECONDS)
+                    //.maxDelay(MAX_RECONNECT_DELAY, TimeUnit.MILLISECONDS) .build())
+//              .sslWithDefaultConfig()
+                .buildAsync()
+        }
 
-        client?.connectWith()
+        client?.connectWith()?.cleanStart(false)?.keepAlive(KEEP_ALIVE)
             ?.send()
             ?.whenComplete { _, throwable ->
                 if (throwable != null) {
@@ -78,47 +84,10 @@ class MQTTUtil {
             }
     }
 
-    /**
-     * Subscribes to the [topic] with provided [qos]. If QoS is not given [MqttQos.EXACTLY_ONCE]
-     * is used by default
-     * @throws IllegalAccessException
-     * */
-    fun subscribe(topic: String, qos: MqttQos = MqttQos.EXACTLY_ONCE) {
-        Log.d(TAG, "subscribe: Subscribing to topic $topic with QoS ${qos.name}")
-        checkConnection("subscribe")
-        client?.subscribeWith()
-            ?.topicFilter(topic)
-            ?.qos(qos)
-            ?.callback { publish ->
-                val data = publish.payloadAsBytes
-                logcat(TAG) {
-                    "subscribe: Received message on $topic, Message - ${data.decodeToString()}"
-                }
-                _message?.value = MQTTMessage(
-                    message = data.decodeToString(),
-                    type = "TEXT",
-                    qos = qos.code,
-                    topic = publish.topic.toString()
-                )
-
-            }
-            ?.send()
-            ?.whenComplete { subAck, throwable ->
-                if (throwable != null) {
-                    Log.e(
-                        TAG,
-                        "subscribe: failed to subscribe to topic - $topic with QoS - $qos",
-                        throwable
-                    )
-                } else {
-                    Log.d(TAG, "subscribe: Subscription successful")
-                }
-            }
-    }
-
-    private fun checkConnection(method: String) {
+    @Suppress("UNUSED")
+    fun checkConnection() {
         if (!isConnected()) {
-            logcat(LogPriority.WARN) { "Client needs to be connected before it can be used to $method. " }
+            logcat(LogPriority.WARN) { "Client needs to be connected before it can be used" }
             logcat { "Attempting to reconnect" }
             client?.connect()
         }
@@ -132,33 +101,12 @@ class MQTTUtil {
     ) {
         logcat(TAG) { "Publishing to topic $topic with message $message" }
 
-        checkConnection("publish")
+        //checkConnection()
 
         client?.publishWith()
             ?.topic(topic)
             ?.payload(message.toByteArray())
             ?.qos(qos)
             ?.send()
-            ?.whenComplete { result: Mqtt5PublishResult?, throwable: Throwable? ->
-
-                if (throwable != null) {
-                    logcat(TAG, LogPriority.ERROR) {
-                        "publish: failed to publish to topic -  $topic\n" +
-                                throwable.asLog()
-                    }
-                    onComplete(false)
-                } else {
-                    // handle successful publish, e.g. logging or incrementing a metric
-                    logcat(TAG) { "Published successfully. topic -  $topic" }
-                    onComplete(true)
-                }
-            }
     }
 }
-
-data class MQTTMessage(
-    val message: String,
-    val type: String,
-    val qos: Int,
-    val topic: String,
-)

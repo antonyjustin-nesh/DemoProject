@@ -35,8 +35,11 @@ data class CanParseEntity(
     val accuracy: Double,
     val altitude: Double,
     val gpsSpeed: Double,
+    val fuel: Int,
+    val engineOilTemp: Int,
+    val lowOilIndicator: Int,
     @ColumnInfo(name = "created_date")
-    val createdDate: Long,
+    val createdDate: Long
 )
 
 fun CanFeed.asEntity() = CanParseEntity(
@@ -59,6 +62,8 @@ fun CanFeed.asEntity() = CanParseEntity(
     batteryVoltage = battery.volt,
     batteryCapacityRemaining = battery.remainingPercent.toDouble(),
     batteryTotalCapacity = battery.fullCapacity,
-    ignition = ignition.name
+    ignition = ignition.name,
+    fuel = obd2.fuel,
+    engineOilTemp = obd2.engineOilTemp,
+    lowOilIndicator = obd2.lowOilIndicator
 )
-

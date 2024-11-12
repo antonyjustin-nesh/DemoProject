@@ -36,7 +36,7 @@ import logcat.logcat
 import javax.inject.Inject
 import javax.inject.Named
 
-const val IGNITION_ON_DELAY = 60_000L
+const val IGNITION_ON_DELAY = 30_000L
 const val IGNITION_OFF_DELAY = 180_000L
 const val INTERVAL_IN_MILLIS = 15_000L
 const val NOTIFICATION_ID = 3
@@ -151,7 +151,7 @@ class DataSendService : Service() {
     private  fun initPortalMQTTClient(imei: String) {
         externalScope.launch {
             portalMQTTClient.connect(
-                url = nlDataStore.mqttFeedUrl() ?: "",
+                url = nlDataStore.mqttFeedUrl() ?: Constants.MQTT_PORTAL_URL,
                 port = Constants.MQTT_PORTAL_PORT,
                 clientId = imei + this@DataSendService.packageName
             ) { isConnected ->
@@ -160,7 +160,6 @@ class DataSendService : Service() {
                         tag = "Init MQTT client",
                         message = "initMQTTClient - MQTT connected to Cloud."
                     )
-                    sendData(imei)
                     showNotification("MQTT connected to Cloud")
                 } else {
                     logHelper.log(
@@ -180,12 +179,12 @@ class DataSendService : Service() {
             localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
                 logcat("MQTT_FILE_TRANSFER") { "Received $canParseEntity" }
 
-                val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") IGNITION_ON_DELAY
-                else IGNITION_OFF_DELAY
+                val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") nlDataStore.ignitionOnDelay() ?: IGNITION_ON_DELAY
+                else nlDataStore.ignitionOffDelay() ?: IGNITION_OFF_DELAY
 
                 sendDataToPortal(canParseEntity, imei)
 
-                delay(dataPushDelay)
+                dataPushDelay?.toLong()?.let { delay(it) }
             }.collect()
         }
     }
@@ -199,24 +198,6 @@ class DataSendService : Service() {
             }, content
         )
         notificationManager?.notify(NOTIFICATION_ID, mqttNotification)
-    }
-
-    private fun sendData(imei: String) {
-        senderJob = externalScope.launch(Dispatchers.IO) {
-            localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
-                logcat("MQTT_FILE_TRANSFER") { "Received $canParseEntity" }
-                val dataPushDelay =
-                    if (canParseEntity.ignitionStatus == "ON") nlDataStore.ignitionOnDelay()
-                    else nlDataStore.ignitionOffDelay()
-
-                if (dataPushDelay != null) {
-                    sendDataToPortal(canParseEntity, imei)
-                    delay(dataPushDelay.toLong())
-                } else {
-                    logHelper.log(LogType.ERROR, "Data push delay is null")
-                }
-            }.collect()
-        }
     }
 
     private fun sendDataToPortal(canFeed: CanParseEntity, imei: String) {
