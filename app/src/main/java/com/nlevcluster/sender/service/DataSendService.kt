@@ -5,16 +5,21 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.database.ContentObserver
+import android.database.Cursor
+import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
+import com.google.gson.Gson
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.database.util.Util
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.Ignition
+import com.nlevcluster.sender.model.VIP
 import com.nlevcluster.sender.mqtt.MQTTClient
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
@@ -43,7 +48,7 @@ const val NOTIFICATION_ID = 3
 
 @AndroidEntryPoint
 class DataSendService : Service() {
-    
+
     private val portalMQTTClient = MQTTUtil()
 
     @Inject
@@ -68,10 +73,63 @@ class DataSendService : Service() {
     private var handler: Handler? = null
     private var monitorMQTTConnectionRunnable: Runnable? = null
 
+    companion object {
+        const val DEFAULT_IGN_ON_DELAY = 15000
+        const val DEFAULT_IGN_OFF_DELAY = 60000
+        const val APPLY_VIP_URI = "content://com.nlevcluster.nl_admin.vip_provider/apply_vip"
+        const val MODEL_VIP_URI = "content://com.nlevcluster.nl_admin.vip_provider/model_vip"
+    }
+
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         createNLSenderNotificationChannel()
+        registerVIPObserver()
+
+    }
+
+    private fun registerVIPObserver() {
+        val indicateApplyVIPUri = Uri.parse(APPLY_VIP_URI)
+        val contentObserver = object : ContentObserver(android.os.Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                configureSenderService()
+            }
+        }
+        contentResolver?.registerContentObserver(indicateApplyVIPUri, true, contentObserver)
+    }
+
+    private fun configureSenderService() {
+        var vip: VIP? = null
+        try {
+            val vipURI = Uri.parse(MODEL_VIP_URI)
+            val cursor: Cursor? = contentResolver?.query(vipURI, null, null, null, null)
+            cursor?.let {
+                while (it.moveToNext()) {
+                    val modeVip = it.getColumnIndex("model_vip")
+                    val modeVipData = it.getString(modeVip)
+                    vip = Gson().fromJson(modeVipData, VIP::class.java)
+
+                    val ignOnDelay = vip?.appConfig?.feed?.ignOnDelay?:DEFAULT_IGN_ON_DELAY
+                    val ignOffDelay = vip?.appConfig?.feed?.ignOnDelay?: DEFAULT_IGN_OFF_DELAY
+                    val mqttFeedUrl = vip?.appConfig?.feed?.mqttUrl
+
+                    CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                        nlDataStore.setIgnitionOnDelay(ignOnDelay)
+                        nlDataStore.setIgnitionOffDelay(ignOffDelay)
+
+                        mqttFeedUrl?.let { url ->
+                            nlDataStore.setMqttFeedUrl(url)
+                            val intent = Intent(this@DataSendService, DataSendService::class.java)
+                            stopSelf()
+                            startService(intent)
+                        }
+                    }
+                }
+                it.close()
+            }
+        } catch (e: Exception) {
+            logcat { "VIPManager - NLVIPHelper - Exception - ${e.message}" }
+        }
     }
 
     private fun monitorMQTTConnection(imei: String) {
@@ -148,7 +206,7 @@ class DataSendService : Service() {
         return START_STICKY
     }
 
-    private  fun initPortalMQTTClient(imei: String) {
+    private fun initPortalMQTTClient(imei: String) {
         externalScope.launch {
             portalMQTTClient.connect(
                 url = nlDataStore.mqttFeedUrl() ?: Constants.MQTT_PORTAL_URL,
@@ -179,8 +237,10 @@ class DataSendService : Service() {
             localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
                 logcat("MQTT_FILE_TRANSFER") { "Received $canParseEntity" }
 
-                val dataPushDelay = if (canParseEntity.ignitionStatus == "ON") nlDataStore.ignitionOnDelay() ?: IGNITION_ON_DELAY
-                else nlDataStore.ignitionOffDelay() ?: IGNITION_OFF_DELAY
+                val dataPushDelay =
+                    if (canParseEntity.ignitionStatus == "ON") nlDataStore.ignitionOnDelay()
+                        ?: IGNITION_ON_DELAY
+                    else nlDataStore.ignitionOffDelay() ?: IGNITION_OFF_DELAY
 
                 sendDataToPortal(canParseEntity, imei)
 
