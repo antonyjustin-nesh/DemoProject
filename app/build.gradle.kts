@@ -16,8 +16,8 @@ android {
         applicationId = "com.nlevcluster.sender"
         minSdk = 26
         targetSdk = 33
-        versionCode = 5
-        versionName = "2.2.2"
+        versionCode = 4
+        versionName = "2.1.0"
 
         buildConfigField("String", "SERVER_URI", "\"tcp://0.0.0.0:1883\"")
         buildConfigField("String", "CLIENT_ID", "\"nlevcluster-sender\"")
@@ -50,9 +50,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-        }
-        debug {
-            applicationIdSuffix = ".debug"
         }
     }
     compileOptions {

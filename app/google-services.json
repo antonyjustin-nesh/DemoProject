@@ -96,7 +96,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:682609403608:android:0870bd5f5acdc4ba0299ad",
         "android_client_info": {
-          "package_name": "com.nlevcluster.sender.debug"
+          "package_name": "com.nlevcluster.sender"
         }
       },
       "oauth_client": [
