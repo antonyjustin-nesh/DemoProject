@@ -76,7 +76,7 @@ class MQTTClient @Inject constructor(
                 }
 
                 if (topic == fileTopic) {
-                logcat("MQTT_FILE_TRANSFER") { topic.toString()}
+                    logcat("MQTT_FILE_TRANSFER") { topic.toString() }
 
                     runCatching {
                         val payload = message?.payload ?: return
@@ -111,15 +111,21 @@ class MQTTClient @Inject constructor(
      */
     private val defaultMqttConnect = object : IMqttActionListener {
         override fun onSuccess(asyncActionToken: IMqttToken?) {
-            logHelper.log(LogType.INFO, "Local MQTT connection success with token $asyncActionToken")
+            logHelper.log(
+                LogType.INFO,
+                "Local MQTT connection success with token $asyncActionToken"
+            )
             topicSubscription(feedTopic)
-            if(feedTopic == Constants.TOPIC_RAW_FEED){
+            if (feedTopic == Constants.TOPIC_RAW_FEED) {
                 topicSubscription(fileTopic)
             }
         }
 
         override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-            logHelper.log(LogType.EXCEPTION, "Server Uri - $serverUri feedTopic - $feedTopic clientId - $clientId")
+            logHelper.log(
+                LogType.EXCEPTION,
+                "Server Uri - $serverUri feedTopic - $feedTopic clientId - $clientId"
+            )
             logHelper.log(LogType.EXCEPTION, "MQTT connection failure with exception $exception")
         }
     }
@@ -207,7 +213,10 @@ class MQTTClient @Inject constructor(
         try {
             mqttAndroidClient.connect(options, null, mqttConnect)
         } catch (e: MqttException) {
-            logHelper.log(LogType.EXCEPTION, "Server Uri - $serverUri feedTopic - $feedTopic clientId - $clientId")
+            logHelper.log(
+                LogType.EXCEPTION,
+                "Server Uri - $serverUri feedTopic - $feedTopic clientId - $clientId"
+            )
             logHelper.log(LogType.EXCEPTION, "Exception on connecting the mqtt client $e")
         }
     }
@@ -327,7 +336,7 @@ class MQTTClient @Inject constructor(
             override fun onSuccess(asyncActionToken: IMqttToken?) {
                 logHelper.log(message = "MQTT client connection succeeded")
                 topicSubscription(feedTopic)
-                if(feedTopic == Constants.TOPIC_RAW_FEED){
+                if (feedTopic == Constants.TOPIC_RAW_FEED) {
                     topicSubscription(fileTopic)
                 }
             }

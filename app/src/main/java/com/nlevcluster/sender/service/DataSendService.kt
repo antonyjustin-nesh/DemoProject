@@ -109,8 +109,8 @@ class DataSendService : Service() {
                     val modeVipData = it.getString(modeVip)
                     vip = Gson().fromJson(modeVipData, VIP::class.java)
 
-                    val ignOnDelay = vip?.appConfig?.feed?.ignOnDelay?:DEFAULT_IGN_ON_DELAY
-                    val ignOffDelay = vip?.appConfig?.feed?.ignOnDelay?: DEFAULT_IGN_OFF_DELAY
+                    val ignOnDelay = vip?.appConfig?.feed?.ignOnDelay ?: DEFAULT_IGN_ON_DELAY
+                    val ignOffDelay = vip?.appConfig?.feed?.ignOnDelay ?: DEFAULT_IGN_OFF_DELAY
                     val mqttFeedUrl = vip?.appConfig?.feed?.mqttUrl
 
                     CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
