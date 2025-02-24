@@ -119,9 +119,7 @@ class DataSendService : Service() {
 
                         mqttFeedUrl?.let { url ->
                             nlDataStore.setMqttFeedUrl(url)
-                            val intent = Intent(this@DataSendService, DataSendService::class.java)
-                            stopSelf()
-                            startService(intent)
+                            stopService(Intent(this@DataSendService, DataSendService::class.java))
                         }
                     }
                 }

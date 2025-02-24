@@ -45,15 +45,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service
-            android:name=".service.ConfigService"
-            android:exported="true" >
-            <intent-filter>
-                <action android:name="com.nlevcluster.sender.CONFIG" />
-            </intent-filter>
-        </service>
     </application>
     <queries>
         <package android:name="com.nlevcluster.nl_logger" />
+        <package android:name="com.nlevcluster.admin" />
     </queries>
 </manifest>
