@@ -16,8 +16,8 @@ android {
         applicationId = "com.nlevcluster.sender"
         minSdk = 26
         targetSdk = 33
-        versionCode = 4
-        versionName = "2.1.0"
+        versionCode = 6
+        versionName = "2.1.3"
 
         buildConfigField("String", "SERVER_URI", "\"tcp://0.0.0.0:1883\"")
         buildConfigField("String", "CLIENT_ID", "\"nlevcluster-sender\"")

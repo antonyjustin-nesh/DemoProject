@@ -223,11 +223,13 @@ class DataSendService : Service() {
     }
 
     private fun createFeed(canFeedEntity: CanParseEntity, imei: String): String {
+        logcat("canFeedEntity") { "canFeedEntity.evMode - ${canFeedEntity.evMode}" }
         val gearPos = when (canFeedEntity.evMode) {
-            EvMode.SPORTS.mode -> "1"
-            EvMode.POWER.mode -> "2"
+            EvMode.SPORTS.name -> "1"
+            EvMode.POWER.name -> "2"
             else -> "0"
         }
+        logcat("canFeedEntity") { "gearPos - $gearPos" }
 
         //Vehicle Mode P/N/D/R
         val vehicleStatus = when (canFeedEntity.ignition) {
