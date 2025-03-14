@@ -15,6 +15,10 @@ import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
+import com.nlevcluster.sender.data.constants.Constants.APPLY_VIP_URI
+import com.nlevcluster.sender.data.constants.Constants.DEFAULT_IGN_OFF_DELAY
+import com.nlevcluster.sender.data.constants.Constants.DEFAULT_IGN_ON_DELAY
+import com.nlevcluster.sender.data.constants.Constants.MODEL_VIP_URI
 import com.nlevcluster.sender.database.entity.CanParseEntity
 import com.nlevcluster.sender.database.util.Util
 import com.nlevcluster.sender.model.EvMode
@@ -54,9 +58,13 @@ class DataSendService : Service() {
     @Inject
     lateinit var nlDataStore: NLDataStore
 
+    @Inject
+    lateinit var gson: Gson
 
     @Inject
     lateinit var logHelper: LogHelper
+
+    val tag = "VIPManager"
 
     @Inject
     @Named("local")
@@ -73,29 +81,21 @@ class DataSendService : Service() {
     private var handler: Handler? = null
     private var monitorMQTTConnectionRunnable: Runnable? = null
 
-    companion object {
-        const val DEFAULT_IGN_ON_DELAY = 15000
-        const val DEFAULT_IGN_OFF_DELAY = 60000
-        const val APPLY_VIP_URI = "content://com.nlevcluster.nl_admin.vip_provider/apply_vip"
-        const val MODEL_VIP_URI = "content://com.nlevcluster.nl_admin.vip_provider/model_vip"
-    }
-
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         createNLSenderNotificationChannel()
         registerVIPObserver()
-
     }
 
     private fun registerVIPObserver() {
-        val indicateApplyVIPUri = Uri.parse(APPLY_VIP_URI)
+        val applyVIPObserverUri = Uri.parse(APPLY_VIP_URI)
         val contentObserver = object : ContentObserver(android.os.Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
                 configureSenderService()
             }
         }
-        contentResolver?.registerContentObserver(indicateApplyVIPUri, true, contentObserver)
+        contentResolver?.registerContentObserver(applyVIPObserverUri, true, contentObserver)
     }
 
     private fun configureSenderService() {
@@ -107,7 +107,7 @@ class DataSendService : Service() {
                 while (it.moveToNext()) {
                     val modeVip = it.getColumnIndex("model_vip")
                     val modeVipData = it.getString(modeVip)
-                    vip = Gson().fromJson(modeVipData, VIP::class.java)
+                    vip = gson.fromJson(modeVipData, VIP::class.java)
 
                     val ignOnDelay = vip?.appConfig?.feed?.ignOnDelay ?: DEFAULT_IGN_ON_DELAY
                     val ignOffDelay = vip?.appConfig?.feed?.ignOnDelay ?: DEFAULT_IGN_OFF_DELAY
@@ -126,7 +126,7 @@ class DataSendService : Service() {
                 it.close()
             }
         } catch (e: Exception) {
-            logcat { "VIPManager - NLVIPHelper - Exception - ${e.message}" }
+            logcat(tag) { "NLVIPHelper - Exception - ${e.message}" }
         }
     }
 
