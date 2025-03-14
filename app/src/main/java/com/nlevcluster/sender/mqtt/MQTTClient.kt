@@ -98,7 +98,7 @@ class MQTTClient @Inject constructor(
             }
         }
 
-        connect(serverUri = serverUri, feedTopic = feedTopic, clientId = clientId)
+        connect()
 
         awaitClose {
             logHelper.log(message = "Listening to mqtt feed stopped. Disconnecting")
@@ -195,11 +195,7 @@ class MQTTClient @Inject constructor(
         username: String = "",
         password: String = "",
         mqttConnect: IMqttActionListener = defaultMqttConnect,
-        mqttCallback: MqttCallback? = defaultMqttCallback,
-
-        serverUri: String = "",
-        feedTopic: String = "",
-        clientId: String = ""
+        mqttCallback: MqttCallback? = defaultMqttCallback
     ) {
         if (mqttCallback != null) {
             mqttAndroidClient.setCallback(mqttCallback)
@@ -213,10 +209,6 @@ class MQTTClient @Inject constructor(
         try {
             mqttAndroidClient.connect(options, null, mqttConnect)
         } catch (e: MqttException) {
-            logHelper.log(
-                LogType.EXCEPTION,
-                "Server Uri - $serverUri feedTopic - $feedTopic clientId - $clientId"
-            )
             logHelper.log(LogType.EXCEPTION, "Exception on connecting the mqtt client $e")
         }
     }
