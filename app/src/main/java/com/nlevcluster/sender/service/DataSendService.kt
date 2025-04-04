@@ -4,7 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.database.ContentObserver
 import android.database.Cursor
 import android.net.Uri
@@ -19,31 +22,35 @@ import com.nlevcluster.sender.data.constants.Constants.APPLY_VIP_URI
 import com.nlevcluster.sender.data.constants.Constants.DEFAULT_IGN_OFF_DELAY
 import com.nlevcluster.sender.data.constants.Constants.DEFAULT_IGN_ON_DELAY
 import com.nlevcluster.sender.data.constants.Constants.MODEL_VIP_URI
-import com.nlevcluster.sender.database.entity.CanParseEntity
-import com.nlevcluster.sender.database.util.Util
+import com.nlevcluster.sender.model.CanFeed
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.Ignition
 import com.nlevcluster.sender.model.VIP
-import com.nlevcluster.sender.mqtt.MQTTClient
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.util.MQTTUtil
 import com.nlevcluster.sender.util.NLDataStore
+import com.nlevcluster.sender.util.Util
+import com.nlevcluster.serialservice.IUartCallback
+import com.nlevcluster.serialservice.IUartService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import logcat.asLog
 import logcat.logcat
+import org.json.JSONArray
+import org.json.JSONObject
 import javax.inject.Inject
-import javax.inject.Named
 
 const val IGNITION_ON_DELAY = 30_000L
 const val IGNITION_OFF_DELAY = 180_000L
@@ -64,11 +71,9 @@ class DataSendService : Service() {
     @Inject
     lateinit var logHelper: LogHelper
 
-    val tag = "VIPManager"
+    private val json = Json { ignoreUnknownKeys = true }
 
-    @Inject
-    @Named("local")
-    lateinit var localMqttClient: MQTTClient
+    private val tag: String = this.javaClass.simpleName
 
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var senderJob: Job? = null
@@ -81,16 +86,139 @@ class DataSendService : Service() {
     private var handler: Handler? = null
     private var monitorMQTTConnectionRunnable: Runnable? = null
 
+
+    private var uartService: IUartService? = null
+    private var serialListenerJob: Job? = null
+    private var reconnectJob: Job? = null
+    private var isBound = false
+
+    private var imei: String? = null
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            uartService = IUartService.Stub.asInterface(binder)
+            isBound = true
+            logcat(TAG) { "Service connected" }
+            startObservingUARTData() // Start collecting data only after binding
+        }
+
+        override fun onBindingDied(name: ComponentName?) {
+            super.onBindingDied(name)
+            logcat(TAG) { "Service onBindingDied" }
+            uartService = null
+            isBound = false
+            scheduleReconnect()
+        }
+
+        override fun onNullBinding(name: ComponentName?) {
+            super.onNullBinding(name)
+            logcat(TAG) { "Service onNullBinding" }
+            uartService = null
+            isBound = false
+            scheduleReconnect()
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            uartService = null
+            logcat(TAG) { "Service disconnected" }
+            uartService = null
+            isBound = false
+            scheduleReconnect()
+        }
+    }
+
+    private val serialServiceDataFlow = callbackFlow {
+        val callback = object : IUartCallback.Stub() {
+
+            override fun onRawFeedReceived(data: String?) {
+                // NO-OP
+            }
+
+            override fun onProcessedFeedReceived(data: String?) {
+                logcat { "RX $data" }
+                if (data != null) {
+                    if (data.isValidJson()) {
+                        try {
+                            val serialCANFeed = json.decodeFromString<CanFeed>(data)
+                            trySend(serialCANFeed)
+                        } catch (ex: Exception) {
+                            logHelper.log(LogType.EXCEPTION, "Exception parsing UART data: $ex")
+                        }
+                    } else {
+                        logHelper.log(
+                            LogType.EXCEPTION,
+                            "Invalid JSON received from UART Feed \n $data"
+                        )
+                    }
+                }
+            }
+        }
+
+        uartService?.registerCallback(callback)
+
+        awaitClose {
+            uartService?.unregisterCallback(callback)
+        }
+    }.catch { logHelper.log(LogType.EXCEPTION, "UART data error: $it") }
+
+
+    private fun bindToSerialService() {
+        val serviceIntent = Intent(SERIAL_SERVICE_INTENT).apply {
+            setPackage(SERIAL_SERVICE_PACKAGE_NAME)
+        }
+
+        val success = bindService(
+            serviceIntent,
+            serviceConnection,
+            Context.BIND_AUTO_CREATE
+        )
+        if (!success) {
+            scheduleReconnect()
+        }
+    }
+
+    private fun scheduleReconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = externalScope.launch {
+            delay(RECONNECT_DELAY)
+            if (!isBound) {
+                logcat(TAG) { "Attempting to reconnect to UART service" }
+                bindToSerialService()
+            }
+        }
+    }
+
+    private fun startObservingUARTData() {
+        serialListenerJob = externalScope.launch(Dispatchers.IO) {
+            serialServiceDataFlow
+                .catch { logHelper.log(LogType.EXCEPTION, "UART data error: $it") }
+                .conflate()
+                .collect { canData ->
+                    val dataPushDelay =
+                        if (canData.ignitionStatus.name == "ON") nlDataStore.ignitionOnDelay()
+                            ?: IGNITION_ON_DELAY
+                        else nlDataStore.ignitionOffDelay() ?: IGNITION_OFF_DELAY
+
+                    imei?.let { sendDataToPortal(canData, it) } ?: run {
+                        logcat { "Failed to send data to portal, IMEI is null" }
+                    }
+
+                    delay(dataPushDelay.toLong())
+                }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         createNLSenderNotificationChannel()
         registerVIPObserver()
+        bindToSerialService()
     }
 
     private fun registerVIPObserver() {
         val applyVIPObserverUri = Uri.parse(APPLY_VIP_URI)
-        val contentObserver = object : ContentObserver(android.os.Handler(Looper.getMainLooper())) {
+        val contentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
                 configureSenderService()
             }
@@ -99,7 +227,7 @@ class DataSendService : Service() {
     }
 
     private fun configureSenderService() {
-        var vip: VIP? = null
+        var vip: VIP?
         try {
             val vipURI = Uri.parse(MODEL_VIP_URI)
             val cursor: Cursor? = contentResolver?.query(vipURI, null, null, null, null)
@@ -149,19 +277,6 @@ class DataSendService : Service() {
                     )
                 }
 
-                if (!localMqttClient.isConnected()) {
-                    logHelper.log(
-                        tag = "MQTT_CONNECTION_MONITOR",
-                        message = "Local MQTT Connection lost. Attempting to reconnect..."
-                    )
-                    initLocalMQTTClient(imei)
-                } else {
-                    logHelper.log(
-                        tag = "MQTT_CONNECTION_MONITOR",
-                        message = "Local MQTT Connection active. No action required."
-                    )
-                }
-
                 handler?.postDelayed(this, INTERVAL_IN_MILLIS)
             }
         }
@@ -180,7 +295,7 @@ class DataSendService : Service() {
             startForeground(NOTIFICATION_ID, initialNotification)
 
             val sharedPref = getSharedPreferences("properties", MODE_PRIVATE)
-            val imei: String? = intent?.getStringExtra("IMEI") ?: sharedPref.getString("imei", null)
+            imei = intent?.getStringExtra("IMEI") ?: sharedPref.getString("imei", null)
             imei?.let { imeiValue ->
                 // Check if IMEI is already stored, if not, save it
                 if (sharedPref.getString("imei", null) == null) {
@@ -192,8 +307,8 @@ class DataSendService : Service() {
 
                 if (senderJob == null) {
                     logcat { "Received imei Number - $imei" }
-                    monitorMQTTConnection(imei)
-                    initPortalMQTTClient(imei)
+                    monitorMQTTConnection(imeiValue)
+                    initPortalMQTTClient(imeiValue)
                     return START_REDELIVER_INTENT
                 }
             }
@@ -227,26 +342,6 @@ class DataSendService : Service() {
         }
     }
 
-    private fun initLocalMQTTClient(imei: String) {
-        senderJob?.cancel()
-        senderJob = null
-
-        senderJob = externalScope.launch(Dispatchers.IO) {
-            localMqttClient.canParsedEntityFlow.conflate().onEach { canParseEntity ->
-                logcat("MQTT_FILE_TRANSFER") { "Received $canParseEntity" }
-
-                val dataPushDelay =
-                    if (canParseEntity.ignitionStatus == "ON") nlDataStore.ignitionOnDelay()
-                        ?: IGNITION_ON_DELAY
-                    else nlDataStore.ignitionOffDelay() ?: IGNITION_OFF_DELAY
-
-                sendDataToPortal(canParseEntity, imei)
-
-                dataPushDelay?.toLong()?.let { delay(it) }
-            }.collect()
-        }
-    }
-
     private fun showNotification(content: String, title: String = notificationTitle) {
         val mqttNotification = createNLSenderNotification(
             "$title - " + if (portalMQTTClient.isConnected()) {
@@ -258,7 +353,7 @@ class DataSendService : Service() {
         notificationManager?.notify(NOTIFICATION_ID, mqttNotification)
     }
 
-    private fun sendDataToPortal(canFeed: CanParseEntity, imei: String) {
+    private fun sendDataToPortal(canFeed: CanFeed, imei: String) {
         val feedData = createFeed(canFeed, imei)
         val mqttPacket = """
         {
@@ -280,77 +375,73 @@ class DataSendService : Service() {
         }
     }
 
-    private fun createFeed(canFeedEntity: CanParseEntity, imei: String): String {
-        logcat("canFeedEntity") { "canFeedEntity.evMode - ${canFeedEntity.evMode}" }
-        val gearPos = when (canFeedEntity.evMode) {
-            EvMode.SPORTS.name -> "1"
-            EvMode.POWER.name -> "2"
+    private fun createFeed(processedCANFeed: CanFeed, imei: String): String {
+        logcat("canFeedEntity") { "canFeedEntity.evMode - ${processedCANFeed.evMode}" }
+        val gearPos = when (processedCANFeed.evMode) {
+            EvMode.SPORTS -> "1"
+            EvMode.POWER -> "2"
             else -> "0"
         }
         logcat("canFeedEntity") { "gearPos - $gearPos" }
 
         //Vehicle Mode P/N/D/R
-        val vehicleStatus = when (canFeedEntity.ignition) {
-            Ignition.REVERSE.name -> "1"
-            Ignition.DRIVE.name -> "4"
-            Ignition.NEUTRAL.name -> "2"
+        val vehicleStatus = when (processedCANFeed.ignition) {
+            Ignition.REVERSE -> "1"
+            Ignition.DRIVE -> "4"
+            Ignition.NEUTRAL -> "2"
             else -> "0"
         }
 
-        canFeedEntity.apply {
-            val moving = if (speed == 0) 0 else 1
+        val moving = if (processedCANFeed.transmission.speed == 0) 0 else 1
 
             return """
             {
               "imei": "$imei",
-              "sequenceNumber": "$id",
-              "latitude": "$latitude",
-              "longitude": "$longitude",
-              "altitude": "$altitude",
-              "time": "${Util.getTimeFromLong(createdDate)}",
-              "date": "${Util.getDateFromLong(createdDate)}",
-              "speed": "$speed",
+              "sequenceNumber": "${processedCANFeed.seqNo}",
+              "latitude": "${processedCANFeed.currentLocation?.latitude}",
+              "longitude": "${processedCANFeed.currentLocation?.longitude}",
+              "altitude": "${processedCANFeed.currentLocation?.altitude}",
+              "time": "${Util.getTimeFromLong(processedCANFeed.createdDate)}",
+              "date": "${Util.getDateFromLong(processedCANFeed.createdDate)}",
+              "speed": "${processedCANFeed.transmission.speed}",
               "heading": "34",
               "noOfSat": "5",
               "mainPowerStatus": "1",
-              "ignitionStatus": "${getIgnitionStatus(ignition)}",
+              "ignitionStatus": "${getIgnitionStatus(processedCANFeed.ignition)}",
               "movementStatus": "$moving",
-              "vehicleStatus": "${returnVehicleStatus(ignitionStatus)}",
+              "vehicleStatus": "${returnVehicleStatus(processedCANFeed.ignition)}",
               "interBatteryVoltage": "3.9",
-              "interBatteryPercentage": "$soc",
-              "gpsOdometer": "$odometer",
+              "interBatteryPercentage": "${processedCANFeed.battery.remainingPercent}",
+              "gpsOdometer": "${processedCANFeed.odometer.totalKm}",
               "gpsDataValidityStatus": "1",
               "packetLiveOrStoredStatus": "1",
-              "batteryVoltage": "$batteryVoltage",
-              "batteryCurrent": "$batteryCurrent",
-              "batterySoC": "$soc",
+              "batteryVoltage": "${processedCANFeed.battery.volt}",
+              "batteryCurrent": "${processedCANFeed.battery.current}",
+              "batterySoC": "${processedCANFeed.battery.remainingPercent}",
               "batteryCapacityRemaining": "32",
-              "vehicleSpeed": "$speed",
-              "vehicleOdometer": "$odometer",
-              "motorRPM": "$rpm",
+              "vehicleSpeed": "${processedCANFeed.transmission.speed}",
+              "vehicleOdometer": "${processedCANFeed.odometer.totalKm}",
+              "motorRPM": "${processedCANFeed.transmission.rpm}",
               "vehicleMode": "$vehicleStatus",
               "gearPosition": "$gearPos",
               "customerCode": "100"
             }
         """.trimIndent()
+    }
+
+    private fun returnVehicleStatus(status: Ignition): String {
+        return when (status) {
+            Ignition.PARK -> "0"
+            Ignition.DRIVE -> "1"
+            Ignition.NEUTRAL -> "0"
+            Ignition.REVERSE -> "1"
         }
     }
 
-    private fun returnVehicleStatus(status: String): String {
+    private fun getIgnitionStatus(status: Ignition): String {
         return when (status) {
-            Ignition.PARK.name -> "0"
-            Ignition.DRIVE.name -> "1"
-            Ignition.NEUTRAL.name -> "0"
-            Ignition.REVERSE.name -> "1"
-            else -> "0"
-        }
-    }
-
-    private fun getIgnitionStatus(status: String): String {
-        return when (status) {
-            Ignition.PARK.name -> "0"
-            Ignition.DRIVE.name, Ignition.NEUTRAL.name, Ignition.REVERSE.name -> "1"
-            else -> "0"
+            Ignition.PARK -> "0"
+            Ignition.DRIVE, Ignition.NEUTRAL, Ignition.REVERSE -> "1"
         }
     }
 
@@ -400,6 +491,33 @@ class DataSendService : Service() {
         senderJob = null
         externalScope.cancel()
         portalMQTTClient.disconnect()
+
+        logcat(TAG) { "UARTService onDestroy" }
+        serialListenerJob?.cancel()
+        unbindService(serviceConnection)
         super.onDestroy()
+    }
+
+    fun String?.isValidJson(): Boolean {
+        if (this.isNullOrBlank()) return false
+        return try {
+            JSONObject(this)
+            true
+        } catch (e: Exception) {
+            try {
+                JSONArray(this)
+                true
+            } catch (e: Exception) {
+                false
+            }
+        }
+    }
+
+    companion object {
+        const val DATA = "DATA"
+        const val TAG = "UART"
+        private const val RECONNECT_DELAY = 1000L // 1 second
+        private const val SERIAL_SERVICE_INTENT = "com.nlevcluster.serialservice.BIND_UART_SERVICE"
+        private const val SERIAL_SERVICE_PACKAGE_NAME = "com.nlevcluster.serialservice"
     }
 }
