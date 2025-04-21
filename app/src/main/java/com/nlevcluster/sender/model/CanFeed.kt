@@ -1,21 +1,20 @@
 package com.nlevcluster.sender.model
+import kotlinx.serialization.Serializable
 
-/**
- *  External data layer representation of UsbCanFeed
- */
+
+@Serializable
 data class CanFeed(
-    val transmission: Transmission,
-    val battery: Battery,
-    val odometer: Odometer,
-    val indicator: Indicator,
-    val ignition: Ignition,
-    val ignitionStatus: IgnitionStatus,
-    val stand: Stand,
-    val evMode: EvMode,
-    val headLight: HeadLight,
-    val gps: String = "",
+    var seqNo: Int = -1,
+    val transmission: Transmission = Transmission(),
+    val battery: Battery = Battery(),
+    val odometer: Odometer = Odometer(),
+    val indicator: Indicator = Indicator(),
+    var ignition: Ignition = Ignition.PARK,
+    var ignitionStatus: IgnitionStatus = IgnitionStatus.ON,
+    var stand: Stand = Stand.ON,
+    var evMode: EvMode = EvMode.ECO,
+    val headLight: HeadLight = HeadLight(),
     var currentLocation: LocationInfo? = null,
-    val usbState: UsbState?,
-    val createdDate: Long,
-    val obd2: OBD2
+    val createdDate: Long = 0L,
+    var isSimulated: Boolean = false,
 )

@@ -1,20 +1,12 @@
 package com.nlevcluster.sender.model
 
-data class LocationInfo(
-    val latitude: Double,
-    val longitude: Double,
-    val accuracy: Double,
-    val speed: Double,
-    val altitude: Double,
-) {
-    override fun toString(): String =
-        "$latitude|$longitude|$accuracy|$speed|$altitude"
-}
+import kotlinx.serialization.Serializable
 
-fun emptyLocationInfo(): LocationInfo = LocationInfo(
-    latitude = 0.0,
-    longitude = 0.0,
-    accuracy = 0.0,
-    speed = 0.0,
-    altitude = 0.0,
+@Serializable
+data class LocationInfo(
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val accuracy: Double = 0.0,
+    val speed: Float = 0f,
+    val altitude: Float = 0f,
 )

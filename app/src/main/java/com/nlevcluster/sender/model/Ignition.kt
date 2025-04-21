@@ -6,13 +6,3 @@ enum class Ignition(val value: String) {
     NEUTRAL("10"),
     DRIVE("11")
 }
-
-//fun Int.asIgnition(): Ignition =
-//    Ignition.values().first { it.value == this }
-
-fun String?.asIgnition(): Ignition = when (this) {
-    null -> Ignition.PARK
-    else -> {
-        Ignition.values().firstOrNull { it.value == this } ?: Ignition.PARK
-    }
-}

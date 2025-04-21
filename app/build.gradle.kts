@@ -6,6 +6,7 @@ plugins {
     id("com.google.dagger.hilt.android")
     id("com.google.gms.google-services")
     id("com.google.firebase.crashlytics")
+    kotlin("plugin.serialization") version "1.8.0"
 }
 
 android {
@@ -19,21 +20,11 @@ android {
         versionCode = 1
         versionName = "0.0.1"
 
-        buildConfigField("String", "SERVER_URI", "\"tcp://0.0.0.0:1883\"")
-        buildConfigField("String", "CLIENT_ID", "\"nlevcluster-sender\"")
-        buildConfigField("String", "MQTT_USERNAME", "\"\"")
-        buildConfigField("String", "MQTT_PASSWORD", "\"\"")
-        buildConfigField("String", "MQTT_FEED_TOPIC", "\"sender/processed_can_feed\"")
-
         buildConfigField("String", "PORTAL_MQTT_SERVER_URI", "\"tcp://averav2.nesh.live\"")
         buildConfigField("String", "PORTAL_MQTT_CLIENT_ID", "\"portal-nlevcluster-sender\"")
         buildConfigField("String", "PORTAL_MQTT_USERNAME", "\"\"")
         buildConfigField("String", "PORTAL_MQTT_PASSWORD", "\"\"")
         buildConfigField("String", "PORTAL_MQTT_FEED_TOPIC", "\"RAW_FEED\"")
-        buildConfigField("boolean", "IS_PRODUCTION", "false")
-//        buildConfigField("String", "TABLET", "\"4123\"")
-//        buildConfigField("String", "TABLET", "\"3283\"")
-        buildConfigField("String", "TABLET", "\"3311\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -62,6 +53,7 @@ android {
     buildFeatures {
         buildConfig = true
         viewBinding = true
+        aidl = true
     }
     android { packagingOptions.resources.excludes.add("META-INF/*") }
 }
@@ -73,7 +65,6 @@ dependencies {
     implementation("com.google.android.material:material:1.8.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.activity:activity-ktx:1.7.2")
-    implementation(files("libs\\serviceLibrary-release.aar"))
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
@@ -118,6 +109,9 @@ dependencies {
     implementation("com.hivemq:hivemq-mqtt-client-shaded:1.3.3")
 
     implementation ("androidx.datastore:datastore-preferences:1.0.0")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+
 }
 
 // Allow references to generated code

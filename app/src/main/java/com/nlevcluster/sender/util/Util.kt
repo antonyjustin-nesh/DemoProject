@@ -1,4 +1,4 @@
-package com.nlevcluster.sender.database.util
+package com.nlevcluster.sender.util
 
 import dagger.Module
 import dagger.hilt.InstallIn
