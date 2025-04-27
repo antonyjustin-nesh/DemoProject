@@ -16,6 +16,8 @@ import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
+import com.nlevcluster.data_processor.IUartCallback
+import com.nlevcluster.data_processor.IUartService
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.data.constants.Constants.APPLY_VIP_URI
@@ -31,8 +33,6 @@ import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.util.MQTTUtil
 import com.nlevcluster.sender.util.NLDataStore
 import com.nlevcluster.sender.util.Util
-import com.nlevcluster.serialservice.IUartCallback
-import com.nlevcluster.serialservice.IUartService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
