@@ -18,7 +18,7 @@ object Constants {
     // Portal MQTT Topics
     const val TOPIC_RAW_FEED = "RAW_FEED"
     const val TOPIC_HEALTH_PACKET = "HEALTH_PACKET"
-    const val MQTT_PORTAL_URL = "averav2.nesh.live"
+    const val MQTT_PORTAL_URL = "evcluster.nesh.live"
     const val MQTT_PORTAL_PORT = 1883
     const val TEST_IMEI = "911233851860432"
 }
