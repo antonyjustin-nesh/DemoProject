@@ -1,6 +1,6 @@
-package com.nlevcluster.serialservice;
+package com.nlevcluster.data_processor;
 
-import com.nlevcluster.serialservice.IUartCallback;
+import com.nlevcluster.data_processor.IUartCallback;
 // AIDL interface to provide UART data
 interface IUartService {
     void writeData(in String data);

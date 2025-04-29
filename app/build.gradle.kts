@@ -18,13 +18,7 @@ android {
         minSdk = 26
         targetSdk = 33
         versionCode = 1
-        versionName = "0.0.1"
-
-        buildConfigField("String", "PORTAL_MQTT_SERVER_URI", "\"tcp://averav2.nesh.live\"")
-        buildConfigField("String", "PORTAL_MQTT_CLIENT_ID", "\"portal-nlevcluster-sender\"")
-        buildConfigField("String", "PORTAL_MQTT_USERNAME", "\"\"")
-        buildConfigField("String", "PORTAL_MQTT_PASSWORD", "\"\"")
-        buildConfigField("String", "PORTAL_MQTT_FEED_TOPIC", "\"RAW_FEED\"")
+        versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

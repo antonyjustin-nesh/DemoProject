@@ -16,6 +16,8 @@ import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
+import com.nlevcluster.data_processor.IUartCallback
+import com.nlevcluster.data_processor.IUartService
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.data.constants.Constants.APPLY_VIP_URI
@@ -31,8 +33,6 @@ import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.util.MQTTUtil
 import com.nlevcluster.sender.util.NLDataStore
 import com.nlevcluster.sender.util.Util
-import com.nlevcluster.serialservice.IUartCallback
-import com.nlevcluster.serialservice.IUartService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -142,11 +142,11 @@ class DataSendService : Service() {
                             val serialCANFeed = json.decodeFromString<CanFeed>(data)
                             trySend(serialCANFeed)
                         } catch (ex: Exception) {
-                            logHelper.log(LogType.EXCEPTION, "Exception parsing UART data: $ex")
+                            logHelper.log(LogType.ERROR, "Exception parsing UART data: $ex")
                         }
                     } else {
                         logHelper.log(
-                            LogType.EXCEPTION,
+                            LogType.ERROR,
                             "Invalid JSON received from UART Feed \n $data"
                         )
                     }
@@ -159,7 +159,7 @@ class DataSendService : Service() {
         awaitClose {
             uartService?.unregisterCallback(callback)
         }
-    }.catch { logHelper.log(LogType.EXCEPTION, "UART data error: $it") }
+    }.catch { logHelper.log(LogType.ERROR, "UART data error: $it") }
 
 
     private fun bindToSerialService() {
@@ -191,7 +191,7 @@ class DataSendService : Service() {
     private fun startObservingUARTData() {
         serialListenerJob = externalScope.launch(Dispatchers.IO) {
             serialServiceDataFlow
-                .catch { logHelper.log(LogType.EXCEPTION, "UART data error: $it") }
+                .catch { logHelper.log(tag = "startObservingUARTData", type = LogType.ERROR, message = "UART data error: $it") }
                 .conflate()
                 .collect { canData ->
                     val dataPushDelay =
@@ -267,7 +267,8 @@ class DataSendService : Service() {
                 if (!portalMQTTClient.isConnected()) {
                     logHelper.log(
                         tag = "MQTT_CONNECTION_MONITOR",
-                        message = "Portal MQTT Connection lost. Attempting to reconnect..."
+                        message = "Portal MQTT Connection lost. Attempting to reconnect...",
+                        type = LogType.ERROR
                     )
                     initPortalMQTTClient(imei)
                 } else {
@@ -335,7 +336,8 @@ class DataSendService : Service() {
                 } else {
                     logHelper.log(
                         tag = "Init MQTT client",
-                        message = "initMQTTClient - MQTT failed to connect to Cloud."
+                        message = "initMQTTClient - MQTT failed to connect to Cloud.",
+                        type = LogType.ERROR
                     )
                 }
             }
