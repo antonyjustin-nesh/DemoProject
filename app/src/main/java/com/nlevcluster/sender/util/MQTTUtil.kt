@@ -7,10 +7,13 @@ import com.hivemq.client.mqtt.datatypes.MqttQos
 import com.hivemq.client.mqtt.lifecycle.MqttClientAutoReconnect
 import com.hivemq.client.mqtt.mqtt5.Mqtt5AsyncClient
 import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5PublishResult
+import com.nlevcluster.sender.nllogger.LogHelper
+import com.nlevcluster.sender.nllogger.LogType
 import logcat.LogPriority
 import logcat.asLog
 import logcat.logcat
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 
 private const val MIN_RECONNECT_DELAY = 15L
 private const val MAX_RECONNECT_DELAY = 60L
@@ -22,6 +25,9 @@ private const val TAG = "MQTT_UTIL"
 @SuppressLint("LogNotTimber")
 class MQTTUtil {
     private var client: Mqtt5AsyncClient? = null
+
+    @Inject
+    lateinit var logHelper: LogHelper
 
     fun isConnected(): Boolean = client?.state?.isConnected ?: false
 
@@ -36,6 +42,11 @@ class MQTTUtil {
     ) {
         if (isConnected()) {
             logcat(TAG) { "connect: The client is already connected. Ignoring the connection request." }
+            logHelper.log(
+                tag = "connect MQTT Client",
+                message = "connect: The client is already connected. Ignoring the connection request.",
+                type = LogType.DEBUG
+            )
             return
         }
 
@@ -62,10 +73,21 @@ class MQTTUtil {
                                 " using $url:$port with clientId - $clientId",
                         throwable
                     )
+                    logHelper.log(
+                        tag = TAG,
+                        message = "connect: failed to connect to the broker" +
+                                " using $url:$port with clientId - $clientId",
+                        type = LogType.ERROR
+                    )
                     onConnectionStatusChange(false)
                 } else {
                     Log.d(TAG, "Connection successful")
                     onConnectionStatusChange(true)
+                    logHelper.log(
+                        tag = TAG,
+                        message = "MQTT Connection successful",
+                        type = LogType.DEBUG
+                    )
                 }
             }
     }
@@ -77,8 +99,18 @@ class MQTTUtil {
                 if (throwable != null) {
                     // handle failure
                     Log.e(TAG, "disconnect: failed to disconnect the broker", throwable)
+                    logHelper.log(
+                        tag = TAG,
+                        message = "disconnect: failed to disconnect the broker",
+                        type = LogType.ERROR
+                    )
                 } else {
                     Log.d(TAG, "Disconnected successfully")
+                    logHelper.log(
+                        tag = TAG,
+                        message = "Disconnected successfully",
+                        type = LogType.DEBUG
+                    )
                     client = null
                 }
             }
@@ -89,6 +121,11 @@ class MQTTUtil {
         if (!isConnected()) {
             logcat(LogPriority.WARN) { "Client needs to be connected before it can be used" }
             logcat { "Attempting to reconnect" }
+            logHelper.log(
+                tag = TAG,
+                message = "Attempting to reconnect",
+                type = LogType.DEBUG
+            )
             client?.connect()
         }
     }
@@ -100,6 +137,12 @@ class MQTTUtil {
         onComplete: (isSuccess: Boolean) -> Unit = {}
     ) {
         logcat(TAG) { "Publishing to topic $topic with message $message" }
+
+        logHelper.log(
+            tag = TAG,
+            message = "Publishing to topic $topic with message $message",
+            type = LogType.INFO
+        )
 
         //checkConnection()
 

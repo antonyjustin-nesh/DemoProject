@@ -2,6 +2,7 @@ package com.nlevcluster.sender
 
 import androidx.lifecycle.ViewModel
 import com.nlevcluster.sender.nllogger.LogHelper
+import com.nlevcluster.sender.nllogger.LogType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import logcat.LogPriority
 import logcat.logcat
@@ -17,8 +18,8 @@ class MainViewModel @Inject constructor(
      *
      * @param message
      */
-    fun log(message: String) {
-        logHelper.log(message = message)
+    fun log(type: LogType, message: String) {
+        logHelper.log(type = type, message = message)
         logcat(LogPriority.INFO, "MainViewModel") {
             message
         }
