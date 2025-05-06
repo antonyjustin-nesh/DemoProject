@@ -4,19 +4,13 @@ import android.annotation.SuppressLint
 import android.util.Log
 import com.hivemq.client.mqtt.MqttClient
 import com.hivemq.client.mqtt.datatypes.MqttQos
-import com.hivemq.client.mqtt.lifecycle.MqttClientAutoReconnect
 import com.hivemq.client.mqtt.mqtt5.Mqtt5AsyncClient
-import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5PublishResult
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
 import logcat.LogPriority
-import logcat.asLog
 import logcat.logcat
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
-private const val MIN_RECONNECT_DELAY = 15L
-private const val MAX_RECONNECT_DELAY = 60L
 private const val KEEP_ALIVE = 3600
 private const val TAG = "MQTT_UTIL"
 /**
@@ -86,7 +80,7 @@ class MQTTUtil {
                     logHelper.log(
                         tag = TAG,
                         message = "MQTT Connection successful",
-                        type = LogType.DEBUG
+                        type = LogType.INFO
                     )
                 }
             }
@@ -108,8 +102,8 @@ class MQTTUtil {
                     Log.d(TAG, "Disconnected successfully")
                     logHelper.log(
                         tag = TAG,
-                        message = "Disconnected successfully",
-                        type = LogType.DEBUG
+                        message = "MQTT Disconnected successfully",
+                        type = LogType.INFO
                     )
                     client = null
                 }
@@ -123,8 +117,8 @@ class MQTTUtil {
             logcat { "Attempting to reconnect" }
             logHelper.log(
                 tag = TAG,
-                message = "Attempting to reconnect",
-                type = LogType.DEBUG
+                message = "Client needs to be connected before it can be used, MQTT Attempting to reconnect",
+                type = LogType.INFO
             )
             client?.connect()
         }
