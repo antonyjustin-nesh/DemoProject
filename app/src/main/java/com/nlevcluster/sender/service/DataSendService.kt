@@ -98,13 +98,15 @@ class DataSendService : Service() {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             uartService = IUartService.Stub.asInterface(binder)
             isBound = true
-            logcat(TAG) { "Service connected" }
+            logcat(tag) { "Service connected" }
+            logHelper.log(tag = tag, type = LogType.DEBUG, message = "Service connected")
             startObservingUARTData() // Start collecting data only after binding
         }
 
         override fun onBindingDied(name: ComponentName?) {
             super.onBindingDied(name)
-            logcat(TAG) { "Service onBindingDied" }
+            logcat(tag) { "Service onBindingDied" }
+            logHelper.log(tag = tag, type = LogType.DEBUG, message = "Service onBindingDied")
             uartService = null
             isBound = false
             scheduleReconnect()
@@ -112,7 +114,8 @@ class DataSendService : Service() {
 
         override fun onNullBinding(name: ComponentName?) {
             super.onNullBinding(name)
-            logcat(TAG) { "Service onNullBinding" }
+            logcat(tag) { "Service onNullBinding" }
+            logHelper.log(tag = tag, type = LogType.DEBUG, message = "Service onNullBinding")
             uartService = null
             isBound = false
             scheduleReconnect()
@@ -120,7 +123,8 @@ class DataSendService : Service() {
 
         override fun onServiceDisconnected(name: ComponentName?) {
             uartService = null
-            logcat(TAG) { "Service disconnected" }
+            logcat(tag) { "Service disconnected" }
+            logHelper.log(tag = tag, type = LogType.DEBUG, message = "Service disconnected")
             uartService = null
             isBound = false
             scheduleReconnect()
@@ -136,10 +140,12 @@ class DataSendService : Service() {
 
             override fun onProcessedFeedReceived(data: String?) {
                 logcat { "RX $data" }
+                logHelper.log(tag = tag, type = LogType.INFO, message = "Received Processing Feed Data - $data")
                 if (data != null) {
                     if (data.isValidJson()) {
                         try {
                             val serialCANFeed = json.decodeFromString<CanFeed>(data)
+                            logHelper.log(tag = tag, type = LogType.INFO, message = "Processed SerialCANFeed - $serialCANFeed")
                             trySend(serialCANFeed)
                         } catch (ex: Exception) {
                             logHelper.log(LogType.ERROR, "Exception parsing UART data: $ex")
@@ -182,8 +188,11 @@ class DataSendService : Service() {
         reconnectJob = externalScope.launch {
             delay(RECONNECT_DELAY)
             if (!isBound) {
-                logcat(TAG) { "Attempting to reconnect to UART service" }
+                logcat(tag) { "Attempting to reconnect to UART service" }
+                logHelper.log(tag = tag, type = LogType.DEBUG, message = "Attempting to reconnect to UART service")
                 bindToSerialService()
+            } else {
+                logHelper.log(tag = tag, type = LogType.DEBUG, message = "UART service connected successfully")
             }
         }
     }
@@ -200,6 +209,7 @@ class DataSendService : Service() {
                         else nlDataStore.ignitionOffDelay() ?: IGNITION_OFF_DELAY
 
                     imei?.let { sendDataToPortal(canData, it) } ?: run {
+                        logHelper.log(tag = "startObservingUARTData", type = LogType.ERROR, message = "Failed to send data to portal, IMEI is null")
                         logcat { "Failed to send data to portal, IMEI is null" }
                     }
 
@@ -255,6 +265,7 @@ class DataSendService : Service() {
             }
         } catch (e: Exception) {
             logcat(tag) { "NLVIPHelper - Exception - ${e.message}" }
+            logHelper.log(tag = "NLVIPHelper", type = LogType.ERROR, message = "Exception while configure sender service - ${e.message}")
         }
     }
 
@@ -274,7 +285,8 @@ class DataSendService : Service() {
                 } else {
                     logHelper.log(
                         tag = "MQTT_CONNECTION_MONITOR",
-                        message = "Portal MQTT Connection active. No action required."
+                        message = "Portal MQTT Connection active. No action required.",
+                        type = LogType.INFO
                     )
                 }
 
@@ -285,7 +297,8 @@ class DataSendService : Service() {
         monitorMQTTConnectionRunnable?.let { handler?.post(it) }
         logHelper.log(
             tag = "MQTT_CONNECTION_MONITOR",
-            message = "MQTT Connection monitoring initiated."
+            message = "MQTT Connection monitoring initiated.",
+            type = LogType.INFO
         )
     }
 
@@ -298,6 +311,7 @@ class DataSendService : Service() {
             val sharedPref = getSharedPreferences("properties", MODE_PRIVATE)
             imei = intent?.getStringExtra("IMEI") ?: sharedPref.getString("imei", null)
             imei?.let { imeiValue ->
+                logHelper.log(tag = tag, type = LogType.INFO, message = "Started Data send service with Device IMEI - $imeiValue")
                 // Check if IMEI is already stored, if not, save it
                 if (sharedPref.getString("imei", null) == null) {
                     with(sharedPref.edit()) {
@@ -315,6 +329,7 @@ class DataSendService : Service() {
             }
         } catch (e: Exception) {
             logcat { e.asLog() }
+            logHelper.log(tag = tag, type = LogType.ERROR, message = "Exception while starting DataSendService - ${e.asLog()}")
         }
 
         return START_STICKY
@@ -330,7 +345,8 @@ class DataSendService : Service() {
                 if (isConnected) {
                     logHelper.log(
                         tag = "Init MQTT client",
-                        message = "initMQTTClient - MQTT connected to Cloud."
+                        message = "initMQTTClient - MQTT connected to Cloud.",
+                        type = LogType.INFO
                     )
                     showNotification("MQTT connected to Cloud")
                 } else {
@@ -372,7 +388,8 @@ class DataSendService : Service() {
             showNotification("$status message with $messageSize Bytes")
             logHelper.log(
                 tag = "Send Data to portal",
-                message = "sendDataToPortal - $status \n $feedData"
+                message = "sendDataToPortal - $status \n $feedData",
+                type = LogType.INFO
             )
         }
     }
@@ -396,7 +413,7 @@ class DataSendService : Service() {
 
         val moving = if (processedCANFeed.transmission.speed == 0) 0 else 1
 
-            return """
+        return """
             {
               "imei": "$imei",
               "sequenceNumber": "${processedCANFeed.seqNo}",
@@ -480,7 +497,7 @@ class DataSendService : Service() {
         notificationManager?.let { nm ->
             nm.createNotificationChannel(channel)
             isNotificationChannelCreated = true
-            logHelper.log(message = "createNLSenderNotificationChannel - Created notification channel")
+            logHelper.log(tag = tag, type = LogType.INFO, message = "createNLSenderNotificationChannel - Created notification channel")
         }
     }
 
@@ -494,7 +511,7 @@ class DataSendService : Service() {
         externalScope.cancel()
         portalMQTTClient.disconnect()
 
-        logcat(TAG) { "UARTService onDestroy" }
+        logcat(tag) { "UARTService onDestroy" }
         serialListenerJob?.cancel()
         unbindService(serviceConnection)
         super.onDestroy()
@@ -517,7 +534,6 @@ class DataSendService : Service() {
 
     companion object {
         const val DATA = "DATA"
-        const val TAG = "UART"
         private const val RECONNECT_DELAY = 1000L // 1 second
         private const val SERIAL_SERVICE_INTENT = "com.nlevcluster.serialservice.BIND_UART_SERVICE"
         private const val SERIAL_SERVICE_PACKAGE_NAME = "com.nlevcluster.serialservice"
