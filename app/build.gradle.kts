@@ -17,7 +17,7 @@ android {
         applicationId = "com.nlevcluster.sender"
         minSdk = 26
         targetSdk = 33
-        versionCode = 1
+        versionCode = 100
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -105,6 +105,8 @@ dependencies {
     implementation ("androidx.datastore:datastore-preferences:1.0.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+
+    implementation("com.guolindev.permissionx:permissionx:1.7.1")
 
 }
 
