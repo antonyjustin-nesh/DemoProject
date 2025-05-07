@@ -413,7 +413,7 @@ class DataSendService : Service() {
 
         val moving = if (processedCANFeed.transmission.speed == 0) 0 else 1
 
-            return """
+        return """
             {
               "imei": "$imei",
               "sequenceNumber": "${processedCANFeed.seqNo}",
