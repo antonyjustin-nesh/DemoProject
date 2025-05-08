@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     kotlin("kapt")
     id("com.google.devtools.ksp")
@@ -28,13 +30,30 @@ android {
         }
     }
 
+    val localProperties = Properties().apply {
+        load(project.rootProject.file("local.properties").inputStream())
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file(localProperties["KEYSTORE_FILE"] as String)
+            storePassword = localProperties["KEYSTORE_PASSWORD"] as String
+            keyAlias = localProperties["KEY_ALIAS"] as String
+            keyPassword = localProperties["KEY_PASSWORD"] as String
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
