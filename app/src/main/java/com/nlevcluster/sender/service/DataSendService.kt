@@ -160,12 +160,20 @@ class DataSendService : Service() {
 
             override fun onProcessedFeedReceived(data: String?) {
                 logcat { "RX $data" }
-                logHelper.log(tag = tag, type = LogType.INFO, message = "Received Processing Feed Data - $data")
+                logHelper.log(
+                    tag = tag,
+                    type = LogType.DEBUG,
+                    message = "Received Processing Feed Data - $data"
+                )
                 if (data != null) {
                     if (data.isValidJson()) {
                         try {
                             val serialCANFeed = json.decodeFromString<CanFeed>(data)
-                            logHelper.log(tag = tag, type = LogType.INFO, message = "Processed SerialCANFeed - $serialCANFeed")
+                            logHelper.log(
+                                tag = tag,
+                                type = LogType.DEBUG,
+                                message = "Processed SerialCANFeed - $serialCANFeed"
+                            )
                             trySend(serialCANFeed)
                         } catch (ex: Exception) {
                             logHelper.log(LogType.ERROR, "Exception parsing UART data: $ex")
@@ -188,14 +196,16 @@ class DataSendService : Service() {
     }.catch { logHelper.log(LogType.ERROR, "UART data error: $it") }
 
     @SuppressLint("MissingPermission")
-    val currentLocation: Flow<Location> = callbackFlow<Location> {
+    val currentLocation: Flow<Location> = callbackFlow {
         if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            logHelper.log(LogType.INFO, "GPS provider disabled", tag)
             logcat("GPS_LOCATION") { "GPS provider disabled" }
             close()
             return@callbackFlow
         }
 
         val listener = LocationListener { location ->
+            logHelper.log(LogType.DEBUG, "Location update success $location", tag)
             trySend(location).isSuccess
         }
 
@@ -210,10 +220,11 @@ class DataSendService : Service() {
 
         awaitClose {
             locationManager.removeUpdates(listener)
-            logcat("GPS_LOCATION") { "Location updates stopped" }
+            logHelper.log(LogType.INFO, "Location update stopped", tag)
+
         }
     }.catch { e ->
-        logcat("GPS_LOCATION") { "Location updates Failed ${e.asLog()}" }
+        logHelper.log(LogType.ERROR, "Location updates Failed ${e.asLog()}", tag)
     }.stateIn(
         externalScope,
         SharingStarted.Lazily,
@@ -286,12 +297,6 @@ class DataSendService : Service() {
         createNLSenderNotificationChannel()
         registerVIPObserver()
         bindToSerialService()
-
-        externalScope.launch {
-            currentLocation.collect {
-                logcat { "CURRENT LOCATION $it" }
-            }
-        }
     }
 
     private fun registerVIPObserver() {
