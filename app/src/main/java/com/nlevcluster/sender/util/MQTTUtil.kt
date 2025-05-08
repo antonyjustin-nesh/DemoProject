@@ -1,6 +1,5 @@
 package com.nlevcluster.sender.util
 
-import android.annotation.SuppressLint
 import android.util.Log
 import com.hivemq.client.mqtt.MqttClient
 import com.hivemq.client.mqtt.datatypes.MqttQos
@@ -10,18 +9,18 @@ import com.nlevcluster.sender.nllogger.LogType
 import logcat.LogPriority
 import logcat.logcat
 import javax.inject.Inject
+import javax.inject.Singleton
 
 private const val KEEP_ALIVE = 3600
 private const val TAG = "MQTT_UTIL"
 /**
  *
  * */
-@SuppressLint("LogNotTimber")
-class MQTTUtil {
+@Singleton
+class MQTTUtil @Inject constructor(
+    private val logHelper: LogHelper
+) {
     private var client: Mqtt5AsyncClient? = null
-
-    @Inject
-    lateinit var logHelper: LogHelper
 
     fun isConnected(): Boolean = client?.state?.isConnected ?: false
 
