@@ -409,7 +409,7 @@ class TripProcessingService : Service() {
                     isTripStart = !isTripStart
 
                     Log.d(
-                        "Trip_Report",
+                        "Trip_Report_Test",
                         "Trip start value captured - startSoc - $startSoc startOdometer - $startOdometer" +
                                 "tripStartTimeDurationMs - $tripStartTimeDurationMs"
                     )
@@ -451,16 +451,25 @@ class TripProcessingService : Service() {
 
                     if(isTripStart && isTripEntered) {
 
+                        val endSOC = canFeed.battery.remainingPercent
+                        val endOdometer = canFeed.odometer.totalKm
+                        val tripEndTimeDurationMs = System.currentTimeMillis()
+
                         tripStatus = TripStatus.COMPLETED
                         val existing = tripDao?.getTripByTripId(tripId)
                         val updated = existing?.copy(
-                            endSOC = canFeed.battery.remainingPercent,
-                            endOdometer = canFeed.odometer.totalKm,
-                            tripEndTimeDurationMs = System.currentTimeMillis(),
+                            endSOC = endSOC,
+                            endOdometer = endOdometer,
+                            tripEndTimeDurationMs = tripEndTimeDurationMs,
                             tripStatus = tripStatus
                         )
                         val updateStatus = updated?.let { tripDao?.updateTrip(it) }
                         Log.d("Trip_Report", "Trip Details Updated - $updateStatus")
+
+                        Log.d(
+                            "Trip_Report_Test",
+                            "Trip end value captured - endSOC - ${endSOC} endOdometer - ${endOdometer}" +
+                                    "tripEndTimeDurationMs - $tripEndTimeDurationMs")
 
                         tripStatus = TripStatus.NOT_STARTED
                         startSoc = 0

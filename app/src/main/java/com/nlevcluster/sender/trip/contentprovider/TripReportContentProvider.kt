@@ -179,21 +179,21 @@ class TripReportContentProvider : ContentProvider() {
             idleAlertsCount = totalIdleAlerts,
             harshAlertsCount = totalHarshAlerts,
             regenCount = totalRegenCount,
-            tripDistanceKm = String.format("%.3f", totalDistance),
+            tripDistanceKm = String.format("%.2f", totalDistance),
             idleDurationMs = totalIdleDuration,
             movingDurationMs = totalMovingDuration,
-            tripDuration = formatMillisToHHMM(totalTripDuration),
+            tripDuration = formatMillisToHHMMSS(totalTripDuration),
             tripDays = tripDaysSet.size,
         )
     }
 
     @SuppressLint("DefaultLocale")
-    fun formatMillisToHHMM(millis: Long): String {
+    private fun formatMillisToHHMMSS(millis: Long): String {
         val hours = TimeUnit.MILLISECONDS.toHours(millis)
         val minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60
-        return String.format("%02d:%02d", hours, minutes)
+        val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60
+        return String.format("%02d:%02d:%02d", hours, minutes, seconds)
     }
-
 
     companion object {
 
