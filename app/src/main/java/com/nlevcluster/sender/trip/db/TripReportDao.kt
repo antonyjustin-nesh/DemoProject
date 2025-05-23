@@ -29,12 +29,15 @@ interface TripReportDao {
         endTime: Long
     ): List<TripReportEntity>
 
+    @Query("SELECT * FROM trip_report WHERE IS_SYNCED = 0 AND END_TIME != 0")
+    fun getUnSyncedTrips(): List<TripReportEntity>
+
+
+    @Query("UPDATE trip_report SET IS_SYNCED = 1 WHERE ID = :tripId AND END_TIME != 0")
+    fun markTripAsSynced(tripId: Int)
 
     @Query("SELECT * FROM trip_report")
     suspend fun getAllTrips(): List<TripReportEntity>
-
-
-
 
 
 }

@@ -61,35 +61,38 @@ data class TripReportEntity(
     @ColumnInfo(name = "END_TIME")
     val tripEndTimeDurationMs: Long = 0,
     @ColumnInfo(name = "TRIP_STATUS")
-    val tripStatus: TripStatus = TripStatus.NOT_STARTED
+    val tripStatus: TripStatus = TripStatus.NOT_STARTED,
+    @ColumnInfo(name = "IS_SYNCED")
+    val isSynced: Int = 0,
 )
 
+fun convertToTripReports(entities: List<TripReportEntity>): List<TripReport> {
+    return entities.map { entity ->
+        TripReport(
+            tripId = entity.id,
+            averageSpeedKmph = entity.averageSpeedKmph,
+            maximumSpeedKmph = entity.maximumSpeedKmph,
+            idleDurationMs = entity.idleDurationMs,
+            startSOC = entity.startSOC,
+            endSOC = entity.endSOC,
+            speedAlertsCount = entity.speedAlertsCount,
+            idleAlertsCount = entity.idleAlertsCount,
+            harshAlertsCount = entity.harshAlertsCount,
+            modeDuration = entity.modeDuration,
+            regenCount = entity.regenCount,
+            startOdometer = entity.startOdometer,
+            endOdometer = entity.endOdometer,
+            startTripLocationLat = entity.startTripLocationLat,
+            startTripLocationLon = entity.startTripLocationLon,
+            endTripLocationLat = entity.endTripLocationLat,
+            endTripLocationLon = entity.endTripLocationLon,
+            startEnergy = entity.startEnergy,
+            endEnergy = entity.endEnergy,
+            tripStartTimeDurationMs = entity.tripStartTimeDurationMs,
+            tripEndTimeDurationMs = entity.tripEndTimeDurationMs,
+            tripStatus = entity.tripStatus,
 
-fun TripReportEntity.asExternalModel() = TripReport(
-    tripId = tripID,
-    idleDurationMs = idleDurationMs,
-    averageSpeedKmph = averageSpeedKmph,
-    maximumSpeedKmph = maximumSpeedKmph,
-    startSoc = startSOC,
-    endSoc = endSOC,
-    speedAlertsCount = speedAlertsCount,
-    idleAlertsCount = idleAlertsCount,
-    harshAlertsCount = harshAlertsCount,
-    modeDuration = modeDuration,
-    regenCount = regenCount,
-    startOdometer = startOdometer,
-    endOdometer = endOdometer,
-    startEnergy = startEnergy,
-    endEnergy = endEnergy,
-    startTripLocationLat = startTripLocationLat,
-    startTripLocationLon = startTripLocationLon,
-    endTripLocationLat = endTripLocationLat,
-    endTripLocationLon = endTripLocationLon,
-    tripStartTimeDurationMs = tripStartTimeDurationMs,
-    tripEndTimeDurationMs = tripEndTimeDurationMs,
-    tripCount = 0,
-    tripDistanceKm = 0.0,
-    tripDurationMs = tripEndTimeDurationMs - tripStartTimeDurationMs,
-    movingDurationMs = 0,
-    tripDays = 0,
-)
+        )
+    }
+
+}

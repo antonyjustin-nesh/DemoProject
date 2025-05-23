@@ -107,6 +107,7 @@ class MQTTUtil {
             ?.topic(topic)
             ?.payload(message.toByteArray())
             ?.qos(qos)
+            ?.retain(true)
             ?.send()
     }
 }
