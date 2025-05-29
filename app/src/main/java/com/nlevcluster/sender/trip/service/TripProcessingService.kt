@@ -14,7 +14,6 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -28,7 +27,6 @@ import com.nlevcluster.sender.model.TripReport
 import com.nlevcluster.sender.model.TripReportPayload
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
-import com.nlevcluster.sender.service.INTERVAL_IN_MILLIS
 import com.nlevcluster.sender.service.NOTIFICATION_ID
 import com.nlevcluster.sender.trip.TripStatus
 import com.nlevcluster.sender.trip.VehicleState
@@ -37,7 +35,6 @@ import com.nlevcluster.sender.trip.db.TripReportDatabase
 import com.nlevcluster.sender.trip.db.TripReportEntity
 import com.nlevcluster.sender.trip.db.convertToTripReports
 import com.nlevcluster.sender.util.MQTTUtil
-import com.nlevcluster.sender.util.NLDataStore
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,8 +62,6 @@ class TripProcessingService : Service() {
     @Inject
     lateinit var logHelper: LogHelper
 
-    @Inject
-    lateinit var nlDataStore: NLDataStore
     private val json = Json { ignoreUnknownKeys = true }
     private val tag: String = this.javaClass.simpleName
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -109,13 +104,13 @@ class TripProcessingService : Service() {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             uartService = IUartService.Stub.asInterface(binder)
             isBound = true
-            logcat(TAG) { "Service connected" }
+            logcat(tag) { "Service connected" }
             startObservingUARTData()
         }
 
         override fun onBindingDied(name: ComponentName?) {
             super.onBindingDied(name)
-            logcat(TAG) { "Service onBindingDied" }
+            logcat(tag) { "Service onBindingDied" }
             uartService = null
             isBound = false
             scheduleReconnect()
@@ -123,7 +118,7 @@ class TripProcessingService : Service() {
 
         override fun onNullBinding(name: ComponentName?) {
             super.onNullBinding(name)
-            logcat(TAG) { "Service onNullBinding" }
+            logcat(tag) { "Service onNullBinding" }
             uartService = null
             isBound = false
             scheduleReconnect()
@@ -131,7 +126,7 @@ class TripProcessingService : Service() {
 
         override fun onServiceDisconnected(name: ComponentName?) {
             uartService = null
-            logcat(TAG) { "Service disconnected" }
+            logcat(tag) { "Service disconnected" }
             uartService = null
             isBound = false
             scheduleReconnect()
@@ -197,7 +192,7 @@ class TripProcessingService : Service() {
         reconnectJob = externalScope.launch {
             delay(RECONNECT_DELAY)
             if (!isBound) {
-                logcat(TAG) { "Attempting to reconnect to UART service" }
+                logcat(tag) { "Attempting to reconnect to UART service" }
                 bindToSerialService()
             }
         }
@@ -353,31 +348,6 @@ class TripProcessingService : Service() {
         bindToSerialService()
     }
 
-    private fun initPortalMQTTClient(imei: String) {
-        externalScope.launch {
-            portalMQTTClient.connect(
-                url = nlDataStore.mqttFeedUrl() ?: Constants.MQTT_PORTAL_URL,
-                port = Constants.MQTT_PORTAL_PORT,
-                clientId = imei + this@TripProcessingService.packageName
-            ) { isConnected ->
-                if (isConnected) {
-                    logHelper.log(
-                        tag = tag,
-                        message = "initMQTTClient - MQTT connected to Cloud."
-                    )
-                    showNotification("MQTT connected to Cloud")
-
-                } else {
-                    logHelper.log(
-                        tag = tag,
-                        message = "initMQTTClient - MQTT failed to connect to Cloud.",
-                        type = LogType.ERROR
-                    )
-                }
-            }
-        }
-    }
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
             val initialNotification =
@@ -396,8 +366,6 @@ class TripProcessingService : Service() {
                 }
 
                 logcat { "Received imei Number - $imei" }
-                //monitorMQTTConnection(imeiValue)
-                initPortalMQTTClient(imeiValue)
                 return START_REDELIVER_INTENT
             }
         } catch (e: Exception) {
@@ -514,7 +482,7 @@ class TripProcessingService : Service() {
         handler = null
         externalScope.cancel()
 
-        logcat(TAG) { "UARTService onDestroy" }
+        logcat(tag) { "UARTService onDestroy" }
         serialListenerJob?.cancel()
         unbindService(serviceConnection)
         stopTripSync()
@@ -538,7 +506,6 @@ class TripProcessingService : Service() {
     }
 
     companion object {
-        const val TAG = "UART"
         private const val RECONNECT_DELAY = 1000L // 1 second
         private const val SERIAL_SERVICE_INTENT =
             "com.nlevcluster.serialservice.BIND_UART_SERVICE"
