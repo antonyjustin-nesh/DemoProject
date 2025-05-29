@@ -1,7 +1,5 @@
 package com.nlevcluster.sender.service
 
-import android.Manifest
-import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,20 +8,13 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
-import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.database.Cursor
-import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.Log
-import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
-import androidx.room.ColumnInfo
 import com.google.gson.Gson
 import com.nlevcluster.data_processor.IUartCallback
 import com.nlevcluster.data_processor.IUartService
@@ -33,17 +24,12 @@ import com.nlevcluster.sender.data.constants.Constants.APPLY_VIP_URI
 import com.nlevcluster.sender.data.constants.Constants.DEFAULT_IGN_OFF_DELAY
 import com.nlevcluster.sender.data.constants.Constants.DEFAULT_IGN_ON_DELAY
 import com.nlevcluster.sender.data.constants.Constants.MODEL_VIP_URI
-import com.nlevcluster.sender.trip.db.TripReportDao
-import com.nlevcluster.sender.trip.db.TripReportDatabase
-import com.nlevcluster.sender.trip.db.TripReportEntity
 import com.nlevcluster.sender.model.CanFeed
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.Ignition
-import com.nlevcluster.sender.model.IgnitionStatus
 import com.nlevcluster.sender.model.VIP
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
-import com.nlevcluster.sender.trip.VehicleState
 import com.nlevcluster.sender.util.MQTTUtil
 import com.nlevcluster.sender.util.NLDataStore
 import com.nlevcluster.sender.util.Util
@@ -58,7 +44,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import logcat.asLog
@@ -75,7 +60,8 @@ const val NOTIFICATION_ID = 3
 @AndroidEntryPoint
 class DataSendService : Service() {
 
-    private val portalMQTTClient = MQTTUtil()
+    @Inject
+    lateinit var portalMQTTClient: MQTTUtil
 
     @Inject
     lateinit var nlDataStore: NLDataStore
@@ -92,6 +78,8 @@ class DataSendService : Service() {
 
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var senderJob: Job? = null
+
+    private val _tripSERVICENAME: String = "com.nlevcluster.sender.trip.service.TripProcessingService"
 
     private val notificationTitle = "NL-Sender - Data Sync"
     private val notificationChannel = "DATA_SYNC_SERVICE"
@@ -331,6 +319,7 @@ class DataSendService : Service() {
                     logcat { "Received imei Number - $imei" }
                     monitorMQTTConnection(imeiValue)
                     initPortalMQTTClient(imeiValue)
+                    initTripService(applicationContext)
                     return START_REDELIVER_INTENT
                 }
             }
@@ -339,6 +328,13 @@ class DataSendService : Service() {
         }
 
         return START_STICKY
+    }
+
+    private fun initTripService(context: Context) {
+        val tripIntent = Intent()
+        tripIntent.setClassName("com.nlevcluster.sender", _tripSERVICENAME)
+        tripIntent.putExtra("IMEI", imei)
+        context.startForegroundService(tripIntent)
     }
 
     private fun initPortalMQTTClient(imei: String) {

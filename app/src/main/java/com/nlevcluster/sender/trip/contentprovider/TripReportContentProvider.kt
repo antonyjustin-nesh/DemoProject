@@ -7,35 +7,50 @@ import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Build
-import android.util.Log
 import androidx.annotation.RequiresApi
 import com.google.gson.Gson
+import com.nlevcluster.sender.di.ProviderEntryPoint
 import com.nlevcluster.sender.model.MonthlyTripReport
-import com.nlevcluster.sender.model.TripReport
+import com.nlevcluster.sender.nllogger.LogHelper
+import com.nlevcluster.sender.nllogger.LogType
+import com.nlevcluster.sender.nllogger.NLLoggerLogHelper
 import com.nlevcluster.sender.trip.db.TripReportDao
 import com.nlevcluster.sender.trip.db.TripReportDatabase
 import com.nlevcluster.sender.trip.db.TripReportEntity
+import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import logcat.logcat
+import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Date
 import java.util.concurrent.TimeUnit
+import kotlin.math.log
 
 class TripReportContentProvider : ContentProvider() {
 
-    private lateinit var gson: Gson
-    val tag = "TripReportContentProvider"
+    private val tag = "TripReportContentProvider"
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
-    private var tripDao: TripReportDao? = null
+
+    private lateinit var tripDao: TripReportDao
+    lateinit var logHelper: LogHelper
+    lateinit var gson: Gson
 
     @RequiresApi(Build.VERSION_CODES.R)
     override fun onCreate(): Boolean {
-        tripDao = context?.let { TripReportDatabase.getInstance(it).tripReportDao() }
-        gson = Gson()
+
+        val context = context?.applicationContext ?: return false
+        val entryPoint = EntryPointAccessors.fromApplication(
+            context,
+            ProviderEntryPoint::class.java
+        )
+        gson = entryPoint.gson()
+        tripDao = entryPoint.tripDao()
+        logHelper = NLLoggerLogHelper(context)
+
         return true
     }
 
@@ -54,50 +69,72 @@ class TripReportContentProvider : ContentProvider() {
         return when (uri.lastPathSegment) {
             MONTHLY_REPORT -> {
                 val selectedDate = uri.getQueryParameter("selectedDate")
-                Log.d(tag, "TripReportContentProvider - selectedDate - ${selectedDate}")
-
                 val cursor = MatrixCursor(arrayOf(MONTHLY_REPORT))
+
+                logHelper.log(
+                    type = LogType.INFO,
+                    tag = tag,
+                    message = "Query received for MONTHLY_REPORT with selectedDate: $selectedDate"
+                )
+
                 try {
 
-                    runBlocking(Dispatchers.IO) {
-                        val dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
-                        val zoneId = ZoneId.systemDefault()
+                    val dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
+                    val zoneId = ZoneId.systemDefault()
 
-                        val startDateTime =
-                            LocalDateTime.parse("01-05-2025 00:00:00", dateFormatter)
-                        //val endDateTime = LocalDateTime.parse("20-05-2025 11:20:00", dateFormatter)
-                        val endDateTime = LocalDateTime.parse(selectedDate, dateFormatter)
+                    val firstDayOfMonth = LocalDate.now().withDayOfMonth(1)
+                    val startOfDay = LocalDateTime.of(firstDayOfMonth, LocalTime.MIDNIGHT)
+                    val formattedDateTime = startOfDay.format(dateFormatter)
 
-                        val startTimestamp = startDateTime.atZone(zoneId).toInstant().toEpochMilli()
-                        val endTimestamp = endDateTime.atZone(zoneId).toInstant().toEpochMilli()
+                    val startDateTime =
+                        LocalDateTime.parse(formattedDateTime, dateFormatter)
+                    val endDateTime = LocalDateTime.parse(selectedDate, dateFormatter)
 
-                        val tripList = tripDao?.getTripsByEndTimeRange(startTimestamp, endTimestamp)
-                        Log.d(
-                            tag,
-                            "Selected Trip List Count - ${tripList?.size} Selected Trip List - $tripList"
-                        )
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "StartDateTime: $startDateTime, EndDateTime: $endDateTime"
+                    )
 
-                        val tripReport = tripList?.let { generateMonthlyTripReport(it) }
-                        Log.d(tag, "Monthly TripReport - $tripReport")
-                        val tripReportData = gson.toJson(tripReport)
-                        Log.d(tag, "Monthly TripReportData - $tripReportData")
+                    val startTimestamp = startDateTime.atZone(zoneId).toInstant().toEpochMilli()
+                    val endTimestamp = endDateTime.atZone(zoneId).toInstant().toEpochMilli()
 
-                        cursor.addRow(arrayOf(tripReportData))
-                        Log.d(tag, "Inside Monthly TripReportData Count - ${cursor.count}")
-                    }
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "StartTimestamp: $startTimestamp, EndTimestamp: $endTimestamp"
+                    )
 
-                    Log.d(tag, "Exit Monthly TripReportData Count - ${cursor.count}")
+                    val tripList = tripDao.getTripsByEndTimeRange(startTimestamp, endTimestamp)
 
-                    Log.d(tag, "TripReportContentProvider - return cursor - $cursor")
+                    val tripReport = generateMonthlyTripReport(tripList)
+                    val tripReportData = gson.toJson(tripReport)
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "Generated MonthlyTripReport JSON"
+                    )
+
+                    cursor.addRow(arrayOf(tripReportData))
+
                 } catch (e: Exception) {
+                    logHelper.log(
+                        type = LogType.ERROR,
+                        tag = tag,
+                        message = "Exception in MONTHLY_REPORT query: ${e.message}"
+                    )
                     cursor.addRow(arrayOf(null))
-                    Log.d(tag, "TripReportContentProvider - return exception cursor - $cursor")
                 }
                 cursor
             }
 
             else -> {
-                logcat(tag) { "query - no uri matched - uriLastPathSegment - ${uri.lastPathSegment}  uri - $uri" }
+                logHelper.log(
+                    type = LogType.ERROR,
+                    tag = tag,
+                    message = "Unknown URI path: ${uri.lastPathSegment}"
+                )
                 null
             }
         }
@@ -121,8 +158,21 @@ class TripReportContentProvider : ContentProvider() {
     }
 
     @SuppressLint("SimpleDateFormat", "DefaultLocale")
-    private fun generateMonthlyTripReport(tripList: List<TripReportEntity>): MonthlyTripReport {
-        if (tripList.isEmpty()) return MonthlyTripReport()
+    fun generateMonthlyTripReport(tripList: List<TripReportEntity>): MonthlyTripReport {
+        if (tripList.isEmpty()) {
+            logHelper.log(
+                type = LogType.INFO,
+                tag = tag,
+                message = "Trip list is empty, returning empty report"
+            )
+            return MonthlyTripReport()
+        }
+
+        logHelper.log(
+            type = LogType.INFO,
+            tag = tag,
+            message = "Generating MonthlyTripReport from ${tripList.size} trips"
+        )
 
         val totalTrips = tripList.size
 
@@ -139,37 +189,36 @@ class TripReportContentProvider : ContentProvider() {
         var totalDistance = 0.0
 
         var totalIdleDuration = 0L
-        var totalMovingDuration = 0L
+        val totalMovingDuration = 0L
         var totalTripDuration = 0L
-        var tripDaysSet = mutableSetOf<String>()
+        val tripDaysSet = mutableSetOf<String>()
 
         var minStartTime = Long.MAX_VALUE
         var maxEndTime = Long.MIN_VALUE
 
+        var date = ""
+        val dateFormatter = SimpleDateFormat("yyyy-MM-dd")
+
         for (trip in tripList) {
             totalAverageSpeed += trip.averageSpeedKmph
             maxSpeed = maxOf(maxSpeed, trip.maximumSpeedKmph)
-
             totalSocConsumption += (trip.endSOC - trip.startSOC)
-
             totalSpeedAlerts += trip.speedAlertsCount
             totalIdleAlerts += trip.idleAlertsCount
             totalHarshAlerts += trip.harshAlertsCount
             totalRegenCount += trip.regenCount
-
             totalDistance += (trip.endOdometer - trip.startOdometer)
-
             totalIdleDuration += trip.idleDurationMs
-
             totalTripDuration += (trip.tripEndTimeDurationMs - trip.tripStartTimeDurationMs)
-
-            val date = java.text.SimpleDateFormat("yyyy-MM-dd")
-                .format(java.util.Date(trip.tripEndTimeDurationMs))
-            tripDaysSet.add(date)
-
+            date = dateFormatter.format(Date(trip.tripEndTimeDurationMs))
+            if (date.isNotEmpty()) {
+                tripDaysSet.add(date)
+            }
             minStartTime = minOf(minStartTime, trip.tripStartTimeDurationMs)
             maxEndTime = maxOf(maxEndTime, trip.tripEndTimeDurationMs)
         }
+
+        logHelper.log(type = LogType.INFO, tag = tag, message = "Completed trip data aggregation")
 
         return MonthlyTripReport(
             averageSpeedKmph = totalAverageSpeed / totalTrips,

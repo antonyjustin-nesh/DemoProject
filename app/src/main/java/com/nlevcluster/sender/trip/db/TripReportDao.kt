@@ -24,7 +24,7 @@ interface TripReportDao {
     fun getTripByTripId(tripId: Int): TripReportEntity?
 
     @Query("SELECT * FROM trip_report WHERE END_TIME BETWEEN :startTime AND :endTime")
-    suspend fun getTripsByEndTimeRange(
+    fun getTripsByEndTimeRange(
         startTime: Long,
         endTime: Long
     ): List<TripReportEntity>
