@@ -7,6 +7,7 @@ import android.widget.Button
 import android.widget.EditText
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import com.nlevcluster.sender.nllogger.LogType
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.hivemq.client.mqtt.datatypes.MqttQos
@@ -37,7 +38,7 @@ class MainActivity : AppCompatActivity() {
     private fun startDataSendService() {
         val intent = Intent(this, DataSendService::class.java)
         startForegroundService(intent)
-        viewModel.log("Started DataSendService")
+        viewModel.log(type = LogType.DEBUG, "Started DataSendService")
     }
 
     private fun startTripProcessingService() {
