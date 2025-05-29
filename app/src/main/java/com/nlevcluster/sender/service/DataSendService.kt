@@ -72,6 +72,9 @@ const val NOTIFICATION_ID = 3
 class DataSendService : Service() {
 
     @Inject
+    lateinit var portalMQTTClient: MQTTUtil
+
+    @Inject
     lateinit var nlDataStore: NLDataStore
 
     @Inject
@@ -79,9 +82,6 @@ class DataSendService : Service() {
 
     @Inject
     lateinit var logHelper: LogHelper
-
-    @Inject
-    lateinit var portalMQTTClient: MQTTUtil
 
     @Inject
     @ApplicationContext
@@ -94,6 +94,8 @@ class DataSendService : Service() {
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var senderJob: Job? = null
 
+    private val _tripSERVICENAME: String = "com.nlevcluster.sender.trip.service.TripProcessingService"
+
     private val notificationTitle = "NL-Sender - Data Sync"
     private val notificationChannel = "DATA_SYNC_SERVICE"
     private var notificationManager: NotificationManager? = null
@@ -101,7 +103,6 @@ class DataSendService : Service() {
 
     private var handler: Handler? = null
     private var monitorMQTTConnectionRunnable: Runnable? = null
-
 
     private var uartService: IUartService? = null
     private var serialListenerJob: Job? = null
@@ -263,7 +264,13 @@ class DataSendService : Service() {
     private fun startObservingUARTData() {
         serialListenerJob = externalScope.launch(Dispatchers.IO) {
             serialServiceDataFlow
-                .catch { logHelper.log(tag = "startObservingUARTData", type = LogType.ERROR, message = "UART data error: $it") }
+                .catch {
+                    logHelper.log(
+                        tag = "startObservingUARTData",
+                        type = LogType.ERROR,
+                        message = "UART data error: $it"
+                    )
+                }
                 .conflate()
                 .combine(currentLocation) { canFeed, location ->
                     canFeed.currentLocation = LocationInfo(
@@ -397,6 +404,7 @@ class DataSendService : Service() {
                     logcat { "Received imei Number - $imei" }
                     monitorMQTTConnection(imeiValue)
                     initPortalMQTTClient(imeiValue)
+                    initTripService(applicationContext)
                     return START_REDELIVER_INTENT
                 }
             }
@@ -406,6 +414,13 @@ class DataSendService : Service() {
         }
 
         return START_STICKY
+    }
+
+    private fun initTripService(context: Context) {
+        val tripIntent = Intent()
+        tripIntent.setClassName("com.nlevcluster.sender", _tripSERVICENAME)
+        tripIntent.putExtra("IMEI", imei)
+        context.startForegroundService(tripIntent)
     }
 
     private fun initPortalMQTTClient(imei: String) {

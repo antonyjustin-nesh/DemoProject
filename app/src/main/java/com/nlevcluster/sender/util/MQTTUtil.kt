@@ -144,5 +144,14 @@ class MQTTUtil @Inject constructor(
             ?.payload(message.toByteArray())
             ?.qos(qos)
             ?.send()
+            ?.whenComplete { ack, throwable ->
+                if (throwable != null) {
+                    logcat(TAG) { "Publish failed: ${throwable.message}" }
+                    onComplete(false)
+                } else {
+                    logcat(TAG) { "Publish successful: ${ack}" }
+                    onComplete(true)
+                }
+            }
     }
 }
