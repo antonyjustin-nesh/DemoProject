@@ -16,7 +16,6 @@ private const val TAG = "MQTT_UTIL"
 /**
  *
  * */
-@Singleton
 class MQTTUtil @Inject constructor(
     private val logHelper: LogHelper
 ) {

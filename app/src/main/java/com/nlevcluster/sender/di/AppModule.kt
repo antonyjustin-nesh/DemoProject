@@ -3,6 +3,7 @@ package com.nlevcluster.sender.di
 import android.content.Context
 import com.google.gson.Gson
 import com.hivemq.client.internal.shaded.javax.inject.Singleton
+import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.trip.db.TripReportDao
 import com.nlevcluster.sender.trip.db.TripReportDatabase
 import com.nlevcluster.sender.util.MQTTUtil
@@ -11,6 +12,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlin.math.log
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -26,14 +28,7 @@ object AppModule {
         return TripReportDatabase.getInstance(context).tripReportDao()
     }
 
-//    @Provides
-//    @Singleton
-//    fun provideLogHelper(@ApplicationContext context: Context): LogHelper =
-//        NLLoggerLogHelper(context)
-
     @Provides
     @Singleton
-    fun provideMqttClient(): MQTTUtil = MQTTUtil()
-
-
+    fun provideMqttClient(logHelper: LogHelper): MQTTUtil = MQTTUtil(logHelper)
 }
