@@ -34,7 +34,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         startDataSendService()
-        startTripProcessingService()
+        //startTripProcessingService()
         finish()
     }
 

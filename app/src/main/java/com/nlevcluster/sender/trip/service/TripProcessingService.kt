@@ -291,7 +291,12 @@ class TripProcessingService : Service() {
                                 tripEndTimeDurationMs = tripEndTimeDurationMs,
                                 tripStatus = tripStatus
                             )
-                            val updateStatus = updated?.let { tripDao?.updateTrip(it) }
+                            val updateStatus = updated?.let { tripDao?.updateTrip(it) }?:0
+                            if(updateStatus == 0) {
+                                logHelper.log(LogType.ERROR, "TripReport update failed - Trip ID : $tripId ")
+                            } else {
+                                logHelper.log(LogType.INFO, "TripReport successfully updated - Trip ID : $tripId ")
+                            }
                             startTripSync()
 
                             tripStatus = TripStatus.NOT_STARTED
@@ -425,13 +430,18 @@ class TripProcessingService : Service() {
     }
 
     private fun startTripSync() {
-        tripSyncJob = CoroutineScope(Dispatchers.IO).launch {
+
+        tripSyncJob = externalScope.launch {
             imei?.let { imeiNumber ->
-                val unSyncedTripsEntities = tripDao?.getUnSyncedTrips()
-                unSyncedTripsEntities?.let {
-                    val unSyncedTrips = convertToTripReports(it)
-                    sendDataToPortal(unSyncedTrips, imeiNumber)
-                }
+                //if(portalMQTTClient.isConnected()) {
+                    val unSyncedTripsEntities = tripDao?.getUnSyncedTrips()
+                    unSyncedTripsEntities?.let {
+                        val unSyncedTrips = convertToTripReports(it)
+                        unSyncedTrips.forEach {
+                            sendDataToPortal(it, imeiNumber)
+                        }
+                    }
+                //}
             } ?: run {
                 logcat { "Failed to send data to portal, IMEI is null" }
             }
@@ -442,24 +452,22 @@ class TripProcessingService : Service() {
         tripSyncJob?.cancel()
     }
 
-    private fun sendDataToPortal(unSyncedTrips: List<TripReport>, imei: String) {
-        val feedData = createFeed(unSyncedTrips, imei)
+    private fun sendDataToPortal(trip: TripReport, imei: String) {
+        val feedData = createFeed(trip, imei)
         val mqttPacket = """
         {
             "type":"${Constants.TOPIC_TRIP_REPORT}",
             "data":${feedData}
         }
         """.trimIndent()
-        logcat { "sendDataToPortal $feedData" }
+        logcat { "sendDataToPortal $mqttPacket" }
 
         val messageSize = mqttPacket.toByteArray().size
         showNotification("Publishing message of $messageSize Bytes") //Show only important data like seq no.
         portalMQTTClient.publish(Constants.TOPIC_TRIP_REPORT, mqttPacket) { isSuccess ->
             val status = if (isSuccess) "Published" else "Failed to publish"
             if (isSuccess) {
-                unSyncedTrips.map {
-                    tripDao?.markTripAsSynced(it.tripId)
-                }
+                tripDao?.markTripAsSynced(trip.tripId)
             }
             showNotification("$status message with $messageSize Bytes")
             logHelper.log(
@@ -469,9 +477,9 @@ class TripProcessingService : Service() {
         }
     }
 
-    private fun createFeed(unSyncedTrips: List<TripReport>, imei: String): String {
+    private fun createFeed(trip: TripReport, imei: String): String {
 
-        val payload = TripReportPayload(imei = imei, trips = unSyncedTrips)
+        val payload = TripReportPayload(imei = imei, trip = trip)
         val tripReportFeed = Json.encodeToString(payload)
         return tripReportFeed
 

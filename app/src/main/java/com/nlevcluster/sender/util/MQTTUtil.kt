@@ -16,6 +16,7 @@ private const val TAG = "MQTT_UTIL"
 /**
  *
  * */
+@Singleton
 class MQTTUtil @Inject constructor(
     private val logHelper: LogHelper
 ) {
@@ -142,7 +143,6 @@ class MQTTUtil @Inject constructor(
             ?.topic(topic)
             ?.payload(message.toByteArray())
             ?.qos(qos)
-            ?.retain(true)
             ?.send()
             ?.whenComplete { ack, throwable ->
                 if (throwable != null) {

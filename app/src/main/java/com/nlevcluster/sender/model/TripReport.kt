@@ -33,5 +33,5 @@ data class TripReport(
 @Serializable
 data class TripReportPayload(
     val imei: String,
-    val trips: List<TripReport>
+    val trip: TripReport
 )
