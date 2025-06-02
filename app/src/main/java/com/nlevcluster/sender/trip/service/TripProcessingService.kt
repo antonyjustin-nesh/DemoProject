@@ -79,6 +79,10 @@ class TripProcessingService : Service() {
 
     private var tripStatus: TripStatus = TripStatus.NOT_STARTED
     private var tripId = 0
+    private var maxCanSpeed: Int = 0
+    private var totalIdleTime: Long = 0L
+    private var startingIdleTime: Long = 0L
+    private var endingIdleTime: Long = 0L
     private var startSoc: Int = 0
     private var endSoc: Int = 0
     private var startOdometer: Double = 0.0
@@ -87,6 +91,7 @@ class TripProcessingService : Service() {
     private var tripEndTimeDurationMs: Long = 0
     private var isTripStarted = false
     private var isTripValid = false
+    private var isIdleValid = false
 
     private var gpsSpeed = 0.0f
     private var tripDao: TripReportDao? = null
@@ -246,6 +251,7 @@ class TripProcessingService : Service() {
         try {
             when (vehicleState) {
                 VehicleState.RUNNING -> {
+
                     if (!isTripStarted) {
                         startSoc = canFeed.battery.remainingPercent
                         startOdometer = canFeed.odometer.totalKm
@@ -255,6 +261,19 @@ class TripProcessingService : Service() {
 
                     if (canFeed.odometer.currentRideInKm > 0.500) {
                         tripStatus = TripStatus.IN_PROGRESS
+
+                        if (canFeed.transmission.speed > maxCanSpeed) {
+                            maxCanSpeed = canFeed.transmission.speed
+                        }
+
+                        if(isIdleValid) {
+                            endingIdleTime = System.currentTimeMillis()
+                            totalIdleTime += (endingIdleTime - startingIdleTime)
+                            isIdleValid = !isIdleValid
+                            Log.d("Idle_Process","TripProcessingService - isIdleValid called() endingIdleTime - $endingIdleTime " +
+                                    "totalIdleTime - $totalIdleTime isIdleValid - $isIdleValid")
+                        }
+
                         if (!isTripValid) {
                             externalScope.launch(Dispatchers.IO) {
                                 tripId = tripDao?.insertTrip(
@@ -273,7 +292,15 @@ class TripProcessingService : Service() {
                 }
 
                 VehicleState.IDLE -> {
-                    // No Action
+                    Log.d("Idle_Process","TripProcessingService - VehicleState.IDLE")
+                    if(tripStatus == TripStatus.IN_PROGRESS) {
+                        if(!isIdleValid) {
+                            startingIdleTime = System.currentTimeMillis()
+                            Log.d("Idle_Process","TripProcessingService - VehicleState.IDLE - tripStatus - $tripStatus isIdleValid - $isIdleValid" +
+                                    "startingIdleTime - $startingIdleTime")
+                            isIdleValid = !isIdleValid
+                        }
+                    }
                 }
 
                 VehicleState.STOP -> {
@@ -283,28 +310,40 @@ class TripProcessingService : Service() {
                             endOdometer = canFeed.odometer.totalKm
                             tripEndTimeDurationMs = System.currentTimeMillis()
 
+                            endingIdleTime = System.currentTimeMillis()
+                            totalIdleTime += (endingIdleTime - startingIdleTime)
+                            Log.d("Idle_Process","TripProcessingService - VehicleState.STOP - endingIdleTime - $endingIdleTime totalIdleTime - $totalIdleTime")
+                            
                             tripStatus = TripStatus.COMPLETED
                             val existing = tripDao?.getTripByTripId(tripId)
                             val updated = existing?.copy(
                                 endSOC = endSoc,
                                 endOdometer = endOdometer,
                                 tripEndTimeDurationMs = tripEndTimeDurationMs,
-                                tripStatus = tripStatus
+                                tripStatus = tripStatus,
+                                maximumSpeedKmph = maxCanSpeed.toFloat(),
+                                idleDurationMs = totalIdleTime
                             )
                             val updateStatus = updated?.let { tripDao?.updateTrip(it) }?:0
-                            if(updateStatus == 0) {
-                                logHelper.log(LogType.ERROR, "TripReport update failed - Trip ID : $tripId ")
-                            } else {
+                            Log.d("Idle_Process","TripProcessingService - updateStatus - $updateStatus updated data - $updated")
+                            if(updateStatus > 0) {
                                 logHelper.log(LogType.INFO, "TripReport successfully updated - Trip ID : $tripId ")
+                            } else {
+                                logHelper.log(LogType.ERROR, "TripReport update failed - Trip ID : $tripId ")
                             }
                             startTripSync()
 
                             tripStatus = TripStatus.NOT_STARTED
                             startSoc = 0
                             startOdometer = 0.0
+                            maxCanSpeed = 0
                             tripStartTimeDurationMs = 0
+                            startingIdleTime = 0
+                            endingIdleTime = 0
+                            totalIdleTime = 0
                             isTripStarted = false
                             isTripValid = false
+                            isIdleValid = false
                         }
                     }
                 }
