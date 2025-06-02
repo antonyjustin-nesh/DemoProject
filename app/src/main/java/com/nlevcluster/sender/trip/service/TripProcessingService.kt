@@ -43,9 +43,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -62,6 +67,9 @@ class TripProcessingService : Service() {
     @Inject
     lateinit var logHelper: LogHelper
 
+    @Inject
+    lateinit var portalMQTTClient: MQTTUtil
+
     private val json = Json { ignoreUnknownKeys = true }
     private val tag: String = this.javaClass.simpleName
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -77,7 +85,6 @@ class TripProcessingService : Service() {
     private var reconnectJob: Job? = null
     private var isBound = false
 
-    private var tripStatus: TripStatus = TripStatus.NOT_STARTED
     private var tripId = 0
     private var maxCanSpeed: Int = 0
     private var totalIdleTime: Long = 0L
@@ -95,15 +102,26 @@ class TripProcessingService : Service() {
 
     private var gpsSpeed = 0.0f
     private var tripDao: TripReportDao? = null
-
-
     private var imei: String? = null
-
-    @Inject
-    lateinit var portalMQTTClient: MQTTUtil
-
     private var tripSyncJob: Job? = null
 
+    // StateFlows for reactive state management
+    private val _vehicleState = MutableStateFlow(VehicleState.UNKNOWN)
+    private val vehicleState: StateFlow<VehicleState> = _vehicleState.asStateFlow()
+
+    private val _canFeed = MutableStateFlow<CanFeed?>(null)
+    private val canFeed: StateFlow<CanFeed?> = _canFeed.asStateFlow()
+
+    private val _tripStatus = MutableStateFlow(TripStatus.NOT_STARTED)
+
+    private lateinit var locationManager: LocationManager
+    private val locationListener = LocationListener { location ->
+        gpsSpeed = location.speed
+    }
+
+    init {
+        setupTripProcessing()
+    }
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -172,11 +190,6 @@ class TripProcessingService : Service() {
         }
     }.catch { logHelper.log(LogType.ERROR, "UART data error: $it") }
 
-    private lateinit var locationManager: LocationManager
-    private val locationListener = LocationListener { location ->
-        gpsSpeed = location.speed
-    }
-
     private fun bindToSerialService() {
         val serviceIntent = Intent(SERIAL_SERVICE_INTENT).apply {
             setPackage(SERIAL_SERVICE_PACKAGE_NAME)
@@ -213,11 +226,33 @@ class TripProcessingService : Service() {
                         message = "UART data error: $it"
                     )
                 }
-                .conflate()
                 .collect { canData ->
-                    val vehicleState = determineVehicleState(canData)
-                    processTrip(vehicleState, canData)
+                    updateVehicleState(determineVehicleState(canData))
+                    updateCanFeed(canData)
                 }
+        }
+    }
+
+    // Public methods to update state
+    private fun updateVehicleState(newState: VehicleState) {
+        _vehicleState.value = newState
+    }
+
+    private fun updateCanFeed(newCanFeed: CanFeed) {
+        _canFeed.value = newCanFeed
+    }
+
+    private fun setupTripProcessing() {
+        // Combine vehicle state and canFeed to process trip logic
+        externalScope.launch {
+            combine(
+                vehicleState,
+                canFeed.filterNotNull().distinctUntilChanged()
+            ) { state, feed ->
+                Pair(state, feed)
+            }.collect { (state, feed) ->
+                processTrip(state, feed)
+            }
         }
     }
 
@@ -246,127 +281,100 @@ class TripProcessingService : Service() {
         }
     }
 
-    private fun processTrip(vehicleState: VehicleState, canFeed: CanFeed) {
-
+    private suspend fun processTrip(vehicleState: VehicleState, canFeed: CanFeed) {
         try {
             when (vehicleState) {
-                VehicleState.RUNNING -> {
-
-                    if (!isTripStarted) {
-                        startSoc = canFeed.battery.remainingPercent
-                        startOdometer = canFeed.odometer.totalKm
-                        tripStartTimeDurationMs = System.currentTimeMillis()
-                        isTripStarted = !isTripStarted
-                    }
-
-                    if (canFeed.odometer.currentRideInKm > 0.500) {
-                        tripStatus = TripStatus.IN_PROGRESS
-
-                        if (canFeed.transmission.speed > maxCanSpeed) {
-                            maxCanSpeed = canFeed.transmission.speed
-                        }
-
-                        if(isIdleValid) {
-                            endingIdleTime = System.currentTimeMillis()
-                            totalIdleTime += (endingIdleTime - startingIdleTime)
-                            isIdleValid = !isIdleValid
-                            Log.d("Idle_Process","TripProcessingService - isIdleValid called() endingIdleTime - $endingIdleTime " +
-                                    "totalIdleTime - $totalIdleTime isIdleValid - $isIdleValid")
-                        }
-
-                        if (!isTripValid) {
-                            externalScope.launch(Dispatchers.IO) {
-                                tripId = tripDao?.insertTrip(
-                                    TripReportEntity(
-                                        tripID = UUID.randomUUID().toString(),
-                                        startSOC = canFeed.battery.remainingPercent,
-                                        startOdometer = startOdometer,
-                                        tripStartTimeDurationMs = tripStartTimeDurationMs,
-                                        tripStatus = tripStatus
-                                    )
-                                )?.toInt() ?: 0
-                                isTripValid = !isTripValid
-                            }
-                        }
-                    }
-                }
-
-                VehicleState.IDLE -> {
-                    Log.d("Idle_Process","TripProcessingService - VehicleState.IDLE")
-                    if(tripStatus == TripStatus.IN_PROGRESS) {
-                        if(!isIdleValid) {
-                            startingIdleTime = System.currentTimeMillis()
-                            Log.d("Idle_Process","TripProcessingService - VehicleState.IDLE - tripStatus - $tripStatus isIdleValid - $isIdleValid" +
-                                    "startingIdleTime - $startingIdleTime")
-                            isIdleValid = !isIdleValid
-                        }
-                    }
-                }
-
-                VehicleState.STOP -> {
-                    if (tripStatus == TripStatus.IN_PROGRESS) {
-                        if (isTripStarted && isTripValid) {
-                            endSoc = canFeed.battery.remainingPercent
-                            endOdometer = canFeed.odometer.totalKm
-                            tripEndTimeDurationMs = System.currentTimeMillis()
-
-                            endingIdleTime = System.currentTimeMillis()
-                            totalIdleTime += (endingIdleTime - startingIdleTime)
-                            Log.d("Idle_Process","TripProcessingService - VehicleState.STOP - endingIdleTime - $endingIdleTime totalIdleTime - $totalIdleTime")
-                            
-                            tripStatus = TripStatus.COMPLETED
-                            val existing = tripDao?.getTripByTripId(tripId)
-                            val updated = existing?.copy(
-                                endSOC = endSoc,
-                                endOdometer = endOdometer,
-                                tripEndTimeDurationMs = tripEndTimeDurationMs,
-                                tripStatus = tripStatus,
-                                maximumSpeedKmph = maxCanSpeed.toFloat(),
-                                idleDurationMs = totalIdleTime
-                            )
-                            val updateStatus = updated?.let { tripDao?.updateTrip(it) }?:0
-                            Log.d("Idle_Process","TripProcessingService - updateStatus - $updateStatus updated data - $updated")
-                            if(updateStatus > 0) {
-                                logHelper.log(LogType.INFO, "TripReport successfully updated - Trip ID : $tripId ")
-                            } else {
-                                logHelper.log(LogType.ERROR, "TripReport update failed - Trip ID : $tripId ")
-                            }
-                            startTripSync()
-
-                            tripStatus = TripStatus.NOT_STARTED
-                            startSoc = 0
-                            startOdometer = 0.0
-                            maxCanSpeed = 0
-                            tripStartTimeDurationMs = 0
-                            startingIdleTime = 0
-                            endingIdleTime = 0
-                            totalIdleTime = 0
-                            isTripStarted = false
-                            isTripValid = false
-                            isIdleValid = false
-                        }
-                    }
-                }
-
+                VehicleState.RUNNING -> handleRunningState(canFeed)
+                VehicleState.IDLE -> handleIdleState()
+                VehicleState.STOP -> handleStopState(canFeed)
                 else -> {
-                    //No Action
+                    // No action for other states
                 }
-
             }
-
         } catch (e: Exception) {
-            if (isTripStarted && isTripValid) {
-                val existing = tripDao?.getTripByTripId(tripId)
-                val updated = existing?.copy(
-                    endSOC = canFeed.battery.range,
-                    endOdometer = canFeed.odometer.totalKm,
-                    tripEndTimeDurationMs = System.currentTimeMillis(),
-                    tripStatus = TripStatus.FAILED
-                )
-                val updateStatus = updated?.let { tripDao?.updateTrip(it) }
-            }
+            //handleTripException(canFeed, e)
+        }
+    }
+
+    private suspend fun handleRunningState(canFeed: CanFeed) {
+        if (!isTripStarted) {
+            initializeTrip(canFeed)
         }
 
+        if (canFeed.odometer.currentRideInKm > 0.500) {
+            _tripStatus.value = TripStatus.IN_PROGRESS
+
+            if (!isTripValid) {
+                insertTripToDatabase(canFeed)
+            }
+        }
+    }
+
+    private fun handleIdleState() {
+        // No action required for idle state
+    }
+
+    private fun handleStopState(canFeed: CanFeed) {
+        if (_tripStatus.value == TripStatus.IN_PROGRESS && isTripStarted && isTripValid) {
+            completeTrip(canFeed)
+        }
+    }
+
+    private fun initializeTrip(canFeed: CanFeed) {
+        startSoc = canFeed.battery.remainingPercent
+        startOdometer = canFeed.odometer.totalKm
+        tripStartTimeDurationMs = System.currentTimeMillis()
+        isTripStarted = true
+    }
+
+    private suspend fun insertTripToDatabase(canFeed: CanFeed) {
+        externalScope.launch(Dispatchers.IO) {
+            tripId = tripDao?.insertTrip(
+                TripReportEntity(
+                    tripID = UUID.randomUUID().toString(),
+                    startSOC = canFeed.battery.remainingPercent,
+                    startOdometer = startOdometer,
+                    tripStartTimeDurationMs = tripStartTimeDurationMs,
+                    tripStatus = _tripStatus.value
+                )
+            )?.toInt() ?: 0
+
+            isTripValid = true
+        }.join() // Wait for database operation to complete
+    }
+
+    private fun completeTrip(canFeed: CanFeed) {
+        endSoc = canFeed.battery.remainingPercent
+        endOdometer = canFeed.odometer.totalKm
+        tripEndTimeDurationMs = System.currentTimeMillis()
+
+        _tripStatus.value = TripStatus.COMPLETED
+
+        externalScope.launch(Dispatchers.IO) {
+            val existing = tripDao?.getTripByTripId(tripId)
+            val updated = existing?.copy(
+                endSOC = endSoc,
+                endOdometer = endOdometer,
+                tripEndTimeDurationMs = tripEndTimeDurationMs,
+                tripStatus = _tripStatus.value
+            )
+            updated?.let { tripDao?.updateTrip(it) }
+
+            // Start trip sync after database update
+            startTripSync()
+
+            // Reset trip state
+            resetTripState()
+        }
+    }
+
+    private fun resetTripState() {
+        _tripStatus.value = TripStatus.NOT_STARTED
+        startSoc = 0
+        startOdometer = 0.0
+        tripStartTimeDurationMs = 0
+        isTripStarted = false
+        isTripValid = false
     }
 
     override fun onCreate() {
@@ -472,15 +480,13 @@ class TripProcessingService : Service() {
 
         tripSyncJob = externalScope.launch {
             imei?.let { imeiNumber ->
-                //if(portalMQTTClient.isConnected()) {
-                    val unSyncedTripsEntities = tripDao?.getUnSyncedTrips()
-                    unSyncedTripsEntities?.let {
-                        val unSyncedTrips = convertToTripReports(it)
-                        unSyncedTrips.forEach {
-                            sendDataToPortal(it, imeiNumber)
-                        }
+                val unSyncedTripsEntities = tripDao?.getUnSyncedTrips()
+                unSyncedTripsEntities?.let {
+                    val unSyncedTrips = convertToTripReports(it)
+                    unSyncedTrips.forEach { trip ->
+                        sendDataToPortal(trip, imeiNumber)
                     }
-                //}
+                }
             } ?: run {
                 logcat { "Failed to send data to portal, IMEI is null" }
             }
@@ -517,11 +523,9 @@ class TripProcessingService : Service() {
     }
 
     private fun createFeed(trip: TripReport, imei: String): String {
-
         val payload = TripReportPayload(imei = imei, trip = trip)
         val tripReportFeed = Json.encodeToString(payload)
         return tripReportFeed
-
     }
 
     override fun onDestroy() {

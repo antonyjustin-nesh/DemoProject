@@ -20,7 +20,7 @@ android {
         minSdk = 26
         targetSdk = 33
         versionCode = 1
-        versionName = "0.1.2"
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -87,7 +87,6 @@ dependencies {
 
 // MQTT
     val mqttClient = "1.2.5"
-    val mqttService = "1.1.1"
     val timber = "5.0.1"
     implementation("com.jakewharton.timber:timber:$timber")
 //    implementation("org.eclipse.paho:org.eclipse.paho.android.service:$mqttService")
