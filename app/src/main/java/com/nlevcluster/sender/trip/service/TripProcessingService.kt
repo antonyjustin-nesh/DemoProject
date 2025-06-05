@@ -14,7 +14,6 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Handler
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.nlevcluster.data_processor.IUartCallback
 import com.nlevcluster.data_processor.IUartService
@@ -41,6 +40,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -53,10 +53,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -162,7 +165,7 @@ class TripProcessingService : Service() {
     }
 
     init {
-        setupTripProcessing()
+        //setupTripProcessing()
     }
 
     private val serviceConnection = object : ServiceConnection {
@@ -292,6 +295,35 @@ class TripProcessingService : Service() {
         }
     }
 
+//    private fun startObservingUARTData() {
+//        serialListenerJob = externalScope.launch(Dispatchers.IO) {
+//            serialServiceDataFlow
+//                .catch {
+//                    logHelper.log(
+//                        tag = "startObservingUARTData",
+//                        type = LogType.ERROR,
+//                        message = "UART data error: $it"
+//                    )
+//                }
+//                .conflate()
+//                .combine(currentLocation) { canFeed, location ->
+//                    canFeed.currentLocation = LocationInfo(
+//                        latitude = location.latitude,
+//                        longitude = location.longitude,
+//                        accuracy = location.accuracy.toDouble(),
+//                        speed = location.speed,
+//                        altitude = location.altitude.toFloat()
+//                    )
+//                    canFeed
+//                }
+//                .collect { canData ->
+//                    updateVehicleState(determineVehicleState(canData))
+//                    updateCanFeed(canData)
+//                }
+//        }
+//    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun startObservingUARTData() {
         serialListenerJob = externalScope.launch(Dispatchers.IO) {
             serialServiceDataFlow
@@ -299,7 +331,7 @@ class TripProcessingService : Service() {
                     logHelper.log(
                         tag = "startObservingUARTData",
                         type = LogType.ERROR,
-                        message = "UART data error: $it"
+                        message = "UART data error: $it" // need to log stack trace
                     )
                 }
                 .conflate()
@@ -312,11 +344,15 @@ class TripProcessingService : Service() {
                         altitude = location.altitude.toFloat()
                     )
                     canFeed
-                }
-                .collect { canData ->
-                    updateVehicleState(determineVehicleState(canData))
-                    updateCanFeed(canData)
-                }
+                }.flatMapLatest { canData ->
+                    val vehicleState = flowOf(determineVehicleState(canData))
+                    combine(
+                        vehicleState,
+                        flowOf(canData)
+                    ) { state, feed ->
+                        processTrip(state, feed)
+                    }
+                }.collect()
         }
     }
 
@@ -330,16 +366,7 @@ class TripProcessingService : Service() {
 
     private fun setupTripProcessing() {
         // Combine vehicle state and canFeed to process trip logic
-        externalScope.launch {
-            combine(
-                vehicleState,
-                canFeed.filterNotNull().distinctUntilChanged()
-            ) { state, feed ->
-                Pair(state, feed)
-            }.collect { (state, feed) ->
-                processTrip(state, feed)
-            }
-        }
+
     }
 
     private fun determineVehicleState(canFeed: CanFeed): VehicleState {

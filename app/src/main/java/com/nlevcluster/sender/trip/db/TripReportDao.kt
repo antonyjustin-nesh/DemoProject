@@ -37,5 +37,7 @@ interface TripReportDao {
     @Query("SELECT * FROM trip_report")
     suspend fun getAllTrips(): List<TripReportEntity>
 
+    @Query("DELETE FROM trip_report")
+    fun deleteAllTrips()
 
 }
