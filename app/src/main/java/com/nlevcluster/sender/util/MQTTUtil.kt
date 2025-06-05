@@ -57,6 +57,7 @@ class MQTTUtil @Inject constructor(
         }
 
         client?.connectWith()?.cleanStart(false)?.keepAlive(KEEP_ALIVE)
+            ?.sessionExpiryInterval(604800)
             ?.send()
             ?.whenComplete { _, throwable ->
                 if (throwable != null) {
@@ -142,6 +143,7 @@ class MQTTUtil @Inject constructor(
         client?.publishWith()
             ?.topic(topic)
             ?.payload(message.toByteArray())
+            ?.messageExpiryInterval(604800)
             ?.qos(qos)
             ?.send()
             ?.whenComplete { ack, throwable ->

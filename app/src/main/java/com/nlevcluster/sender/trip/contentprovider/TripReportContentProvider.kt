@@ -176,6 +176,7 @@ class TripReportContentProvider : ContentProvider() {
 
         val totalTrips = tripList.size
 
+        var averageSpeed = 0f
         var totalAverageSpeed = 0f
         var maxSpeed = 0f
 
@@ -189,7 +190,7 @@ class TripReportContentProvider : ContentProvider() {
         var totalDistance = 0.0
 
         var totalIdleDuration = 0L
-        val totalMovingDuration = 0L
+        var totalMovingDuration = 0L
         var totalTripDuration = 0L
         val tripDaysSet = mutableSetOf<String>()
 
@@ -200,10 +201,10 @@ class TripReportContentProvider : ContentProvider() {
         val dateFormatter = SimpleDateFormat("yyyy-MM-dd")
 
         for (trip in tripList) {
-            totalAverageSpeed += trip.averageSpeedKmph
             maxSpeed = maxOf(maxSpeed, trip.maximumSpeedKmph)
             totalSocConsumption += (trip.endSOC - trip.startSOC)
             totalSpeedAlerts += trip.speedAlertsCount
+            totalAverageSpeed += trip.averageSpeedKmph
             totalIdleAlerts += trip.idleAlertsCount
             totalHarshAlerts += trip.harshAlertsCount
             totalRegenCount += trip.regenCount
@@ -218,10 +219,13 @@ class TripReportContentProvider : ContentProvider() {
             maxEndTime = maxOf(maxEndTime, trip.tripEndTimeDurationMs)
         }
 
+        averageSpeed =  totalAverageSpeed / tripList.size
+        totalMovingDuration += (totalTripDuration - totalIdleDuration)
+
         logHelper.log(type = LogType.INFO, tag = tag, message = "Completed trip data aggregation")
 
         return MonthlyTripReport(
-            averageSpeedKmph = totalAverageSpeed / totalTrips,
+            averageSpeedKmph = averageSpeed,
             maximumSpeedKmph = maxSpeed,
             tripCount = totalTrips,
             speedAlertsCount = totalSpeedAlerts,
@@ -229,8 +233,8 @@ class TripReportContentProvider : ContentProvider() {
             harshAlertsCount = totalHarshAlerts,
             regenCount = totalRegenCount,
             tripDistanceKm = String.format("%.2f", totalDistance),
-            idleDurationMs = totalIdleDuration,
-            movingDurationMs = totalMovingDuration,
+            idleDuration = formatMillisToHHMMSS(totalIdleDuration),
+            movingDuration = formatMillisToHHMMSS(totalMovingDuration),
             tripDuration = formatMillisToHHMMSS(totalTripDuration),
             tripDays = tripDaysSet.size,
         )

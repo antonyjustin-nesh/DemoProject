@@ -11,8 +11,8 @@ data class MonthlyTripReport(
     val harshAlertsCount: Int = 0,
     val regenCount: Int = 0,
     val tripDistanceKm: String = "",
-    val idleDurationMs: Long = 0,
-    val movingDurationMs: Long = 0,
+    val idleDuration: String = "",
+    val movingDuration: String = "",
     val tripDuration: String = "",
     val tripDays: Int = 0,
 )

@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Handler
@@ -22,7 +23,9 @@ import com.nlevcluster.data_processor.IUartService
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.model.CanFeed
+import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.IgnitionStatus
+import com.nlevcluster.sender.model.ModeStats
 import com.nlevcluster.sender.model.TripReport
 import com.nlevcluster.sender.model.TripReportPayload
 import com.nlevcluster.sender.nllogger.LogHelper
@@ -88,6 +91,7 @@ class TripProcessingService : Service() {
     private var tripId = 0
     private var maxCanSpeed: Int = 0
     private var totalIdleTime: Long = 0L
+    private var currentIdleTime: Long = 0L
     private var startingIdleTime: Long = 0L
     private var endingIdleTime: Long = 0L
     private var startSoc: Int = 0
@@ -96,6 +100,30 @@ class TripProcessingService : Service() {
     private var endOdometer: Double = 0.0
     private var tripStartTimeDurationMs: Long = 0
     private var tripEndTimeDurationMs: Long = 0
+
+    private var totalSpeed = 0
+    private var sampleCount = 0
+    private var averageSpeed = 0
+    private var previousSpeed = 0
+    private var lastTimestamp: Long = 0
+    private val speedDeltaThreshold = 10
+    private val speedDeltaDurationThreshold = 3000
+    private var speedAlertCount = 0
+
+    private val idleThreshold = 10000
+    private var idleAlertCount = 0
+    private var idleAlertCheckFlag = false
+
+    private var lastModeChangeTime: Long = System.currentTimeMillis()
+    private var lastModeChangeDistance: Double = 0.0
+    private var previousMode: EvMode? = null
+    private val modeDurations: MutableMap<EvMode, ModeStats> = enumValues<EvMode>()
+        .associateWith { ModeStats() }
+        .toMutableMap()
+    private var modeDurationJson = ""
+
+    private var currentLocation: Location? = null
+
     private var isTripStarted = false
     private var isTripValid = false
     private var isIdleValid = false
@@ -116,7 +144,7 @@ class TripProcessingService : Service() {
 
     private lateinit var locationManager: LocationManager
     private val locationListener = LocationListener { location ->
-        gpsSpeed = location.speed
+        currentLocation = location
     }
 
     init {
@@ -233,7 +261,6 @@ class TripProcessingService : Service() {
         }
     }
 
-    // Public methods to update state
     private fun updateVehicleState(newState: VehicleState) {
         _vehicleState.value = newState
     }
@@ -283,9 +310,13 @@ class TripProcessingService : Service() {
 
     private suspend fun processTrip(vehicleState: VehicleState, canFeed: CanFeed) {
         try {
+            Log.d("Alert_Process", "TripProcessingService - processTrip")
+            updateModeDuration(canFeed)
+            Log.d("Alert_Process", "modeDurations - ${modeDurations}")
+
             when (vehicleState) {
                 VehicleState.RUNNING -> handleRunningState(canFeed)
-                VehicleState.IDLE -> handleIdleState()
+                VehicleState.IDLE -> handleIdleState(canFeed)
                 VehicleState.STOP -> handleStopState(canFeed)
                 else -> {
                     // No action for other states
@@ -297,26 +328,71 @@ class TripProcessingService : Service() {
     }
 
     private suspend fun handleRunningState(canFeed: CanFeed) {
+
         if (!isTripStarted) {
             initializeTrip(canFeed)
         }
-
+        if (isIdleValid) {
+            handleIdleTime()
+        }
+        if (detectSpeedAlert(canFeed.transmission.speed)) {
+            speedAlertCount += 1
+            Log.d("Alert_Process", "detectSpeedAlert - Speed Alert Increased - $speedAlertCount")
+        }
+        handleMaxSpeed(canFeed)
+        updateRunningAverage(canFeed.transmission.speed)
         if (canFeed.odometer.currentRideInKm > 0.500) {
             _tripStatus.value = TripStatus.IN_PROGRESS
-
             if (!isTripValid) {
                 insertTripToDatabase(canFeed)
             }
         }
+
     }
 
-    private fun handleIdleState() {
-        // No action required for idle state
+    private fun handleIdleState(canFeed: CanFeed) {
+        Log.d("Idle_Process", "TripProcessingService - VehicleState.IDLE - ")
+        if (canFeed.odometer.currentRideInKm > 0) {
+            if (!isIdleValid) {
+                startingIdleTime = System.currentTimeMillis()
+                Log.d(
+                    "Idle_Process",
+                    "TripProcessingService - VehicleState.IDLE - tripStatus - ${_tripStatus.value} isIdleValid - $isIdleValid" +
+                            "startingIdleTime - $startingIdleTime"
+                )
+                isIdleValid = !isIdleValid
+            }
+
+            if (!idleAlertCheckFlag) {
+                val currentTime = System.currentTimeMillis()
+                val currentIdleTime = currentTime - startingIdleTime
+                if (currentIdleTime > idleThreshold) {
+                    idleAlertCount += 1
+                    idleAlertCheckFlag = true
+                }
+            }
+        }
     }
 
     private fun handleStopState(canFeed: CanFeed) {
         if (_tripStatus.value == TripStatus.IN_PROGRESS && isTripStarted && isTripValid) {
             completeTrip(canFeed)
+        } else {
+            // Reset trip state
+            resetTripState()
+        }
+    }
+
+    private fun handleTripException(canFeed: CanFeed, exception: java.lang.Exception) {
+        if (isTripStarted && isTripValid) {
+            val existing = tripDao?.getTripByTripId(tripId)
+            val updated = existing?.copy(
+                endSOC = canFeed.battery.range,
+                endOdometer = canFeed.odometer.totalKm,
+                tripEndTimeDurationMs = System.currentTimeMillis(),
+                tripStatus = TripStatus.FAILED
+            )
+            val updateStatus = updated?.let { tripDao?.updateTrip(it) }
         }
     }
 
@@ -327,6 +403,74 @@ class TripProcessingService : Service() {
         isTripStarted = true
     }
 
+    private fun handleMaxSpeed(canFeed: CanFeed) {
+        if (canFeed.transmission.speed > maxCanSpeed) {
+            maxCanSpeed = canFeed.transmission.speed
+        }
+    }
+
+    private fun updateRunningAverage(newSpeed: Int) {
+        if (newSpeed > 0) {
+            totalSpeed += newSpeed
+            sampleCount++
+        }
+    }
+
+    private fun getAverageSpeed(): Int {
+        return if (sampleCount > 0) totalSpeed / sampleCount else 0
+    }
+
+    private fun handleIdleTime() {
+        endingIdleTime = System.currentTimeMillis()
+        currentIdleTime = (endingIdleTime - startingIdleTime)
+        totalIdleTime += currentIdleTime
+        idleAlertCheckFlag = false
+        isIdleValid = !isIdleValid
+        Log.d(
+            "Idle_Process",
+            "TripProcessingService - isIdleValid called() endingIdleTime - $endingIdleTime " +
+                    "totalIdleTime - $totalIdleTime isIdleValid - $isIdleValid"
+        )
+    }
+
+    private fun detectSpeedAlert(currentSpeed: Int): Boolean {
+
+        val now = System.currentTimeMillis()
+        val deltaTime = now - lastTimestamp
+        val deltaSpeed = currentSpeed - previousSpeed
+        previousSpeed = currentSpeed
+
+        return if (deltaSpeed >= speedDeltaThreshold && deltaTime >= speedDeltaDurationThreshold) {
+            lastTimestamp = now
+            true
+        } else {
+            false
+        }
+
+    }
+
+    private fun updateModeDuration(canFeed: CanFeed): MutableMap<EvMode, ModeStats> {
+        val currentTime = System.currentTimeMillis()
+        val currentDistance = canFeed.odometer.currentRideInKm
+        if (lastModeChangeTime == 0L) lastModeChangeTime = currentTime
+        if (lastModeChangeDistance == 0.0) lastModeChangeDistance = currentDistance
+
+        previousMode?.let { prevMode ->
+            if (canFeed.evMode != prevMode) {
+                val duration = currentTime - lastModeChangeTime
+                val distance = currentDistance - lastModeChangeDistance
+                val stats = modeDurations.getOrDefault(prevMode, ModeStats())
+                stats.durationMs += duration
+                stats.distanceKm += distance
+                modeDurations[prevMode] = stats
+                lastModeChangeTime = currentTime
+                lastModeChangeDistance = currentDistance
+            }
+        }
+        previousMode = canFeed.evMode
+        return modeDurations
+    }
+
     private suspend fun insertTripToDatabase(canFeed: CanFeed) {
         externalScope.launch(Dispatchers.IO) {
             tripId = tripDao?.insertTrip(
@@ -335,7 +479,9 @@ class TripProcessingService : Service() {
                     startSOC = canFeed.battery.remainingPercent,
                     startOdometer = startOdometer,
                     tripStartTimeDurationMs = tripStartTimeDurationMs,
-                    tripStatus = _tripStatus.value
+                    tripStatus = _tripStatus.value,
+                    startTripLocationLat = currentLocation?.latitude?:0.0,
+                    startTripLocationLon = currentLocation?.longitude?:0.0
                 )
             )?.toInt() ?: 0
 
@@ -347,6 +493,21 @@ class TripProcessingService : Service() {
         endSoc = canFeed.battery.remainingPercent
         endOdometer = canFeed.odometer.totalKm
         tripEndTimeDurationMs = System.currentTimeMillis()
+        averageSpeed = getAverageSpeed()
+
+        modeDurationJson = Json.encodeToString(modeDurations)
+        val restored = Json.decodeFromString<MutableMap<EvMode, ModeStats>>(modeDurationJson)
+        Log.d("Complete_Trip", "completeTrip - restored Mode Duration - $restored")
+
+        if (isIdleValid) {
+            endingIdleTime = System.currentTimeMillis()
+            totalIdleTime += (endingIdleTime - startingIdleTime)
+            idleAlertCheckFlag = false
+            Log.d(
+                "Idle_Process",
+                "TripProcessingService - VehicleState.STOP - isIdleValid - $isIdleValid startingIdleTime - $startingIdleTime  endingIdleTime - $endingIdleTime totalIdleTime - $totalIdleTime"
+            )
+        }
 
         _tripStatus.value = TripStatus.COMPLETED
 
@@ -356,13 +517,19 @@ class TripProcessingService : Service() {
                 endSOC = endSoc,
                 endOdometer = endOdometer,
                 tripEndTimeDurationMs = tripEndTimeDurationMs,
-                tripStatus = _tripStatus.value
+                tripStatus = _tripStatus.value,
+                maximumSpeedKmph = maxCanSpeed.toFloat(),
+                idleDurationMs = totalIdleTime,
+                idleAlertsCount = idleAlertCount,
+                averageSpeedKmph = averageSpeed.toFloat(),
+                speedAlertsCount = speedAlertCount,
+                modeDuration = modeDurationJson,
+                endTripLocationLat = currentLocation?.latitude?:0.0,
+                endTripLocationLon = currentLocation?.longitude?:0.0
             )
             updated?.let { tripDao?.updateTrip(it) }
-
             // Start trip sync after database update
             startTripSync()
-
             // Reset trip state
             resetTripState()
         }
@@ -372,13 +539,44 @@ class TripProcessingService : Service() {
         _tripStatus.value = TripStatus.NOT_STARTED
         startSoc = 0
         startOdometer = 0.0
+        maxCanSpeed = 0
         tripStartTimeDurationMs = 0
+        startingIdleTime = 0
+        endingIdleTime = 0
+        totalIdleTime = 0
+        averageSpeed = 0
+
+        totalSpeed = 0
+        sampleCount = 0
+        averageSpeed = 0
+        previousSpeed = 0
+        lastTimestamp = 0
+        speedAlertCount = 0
+
+        idleAlertCount = 0
+        idleAlertCheckFlag = false
+
+        lastModeChangeTime = 0
+        lastModeChangeDistance = 0.0
+        previousMode = null
+        clearModeDuration()
+
         isTripStarted = false
         isTripValid = false
+        isIdleValid = false
+    }
+
+    private fun clearModeDuration() {
+        modeDurations.forEach { (_, stats) ->
+            stats.durationMs = 0L
+            stats.distanceKm = 0.0
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
+
+        Log.d("Idle_Process", "TripProcessingService - onCreate()")
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
