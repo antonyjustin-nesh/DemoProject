@@ -11,15 +11,17 @@ import androidx.annotation.RequiresApi
 import com.google.gson.Gson
 import com.nlevcluster.sender.di.ProviderEntryPoint
 import com.nlevcluster.sender.model.MonthlyTripReport
+import com.nlevcluster.sender.model.TripDetails
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.nllogger.NLLoggerLogHelper
 import com.nlevcluster.sender.trip.db.TripReportDao
-import com.nlevcluster.sender.trip.db.TripReportDatabase
 import com.nlevcluster.sender.trip.db.TripReportEntity
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -28,7 +30,6 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.concurrent.TimeUnit
-import kotlin.math.log
 
 class TripReportContentProvider : ContentProvider() {
 
@@ -38,6 +39,7 @@ class TripReportContentProvider : ContentProvider() {
     private lateinit var tripDao: TripReportDao
     lateinit var logHelper: LogHelper
     lateinit var gson: Gson
+    private val json = Json { ignoreUnknownKeys = true }
 
     @RequiresApi(Build.VERSION_CODES.R)
     override fun onCreate(): Boolean {
@@ -107,8 +109,13 @@ class TripReportContentProvider : ContentProvider() {
 
                     val tripList = tripDao.getTripsByEndTimeRange(startTimestamp, endTimestamp)
 
-                    val tripReport = generateMonthlyTripReport(tripList)
-                    val tripReportData = gson.toJson(tripReport)
+                    val monthlyTripReport = generateMonthlyTripReport(tripList)
+                    val monthlyTripReportDetails = json.encodeToString(monthlyTripReport)
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "monthlyTripReportDetails - $monthlyTripReportDetails"
+                    )
 
                     logHelper.log(
                         type = LogType.INFO,
@@ -116,13 +123,14 @@ class TripReportContentProvider : ContentProvider() {
                         message = "Generated MonthlyTripReport JSON"
                     )
 
-                    cursor.addRow(arrayOf(tripReportData))
+                    cursor.addRow(arrayOf(monthlyTripReportDetails))
 
                 } catch (e: Exception) {
                     logHelper.log(
                         type = LogType.ERROR,
                         tag = tag,
-                        message = "Exception in MONTHLY_REPORT query: ${e.message}"
+                        message =
+                        "Exception in MONTHLY_REPORT query: ${e.message}"
                     )
                     cursor.addRow(arrayOf(null))
                 }
@@ -199,8 +207,28 @@ class TripReportContentProvider : ContentProvider() {
 
         var date = ""
         val dateFormatter = SimpleDateFormat("yyyy-MM-dd")
+        val lastTrip = TripDetails()
 
-        for (trip in tripList) {
+        tripList.forEachIndexed { index, trip ->
+            if (index == 0) {
+                lastTrip.apply {
+                    tripDuration =
+                        formatMillisToHHMMSS(trip.tripEndTimeDurationMs - trip.tripStartTimeDurationMs)
+                    tripDistance = (trip.endOdometer - trip.startOdometer)
+                    tripDate = convertMillisToDate(trip.tripEndTimeDurationMs)
+                    socConsumption = (trip.startSOC - trip.endSOC)
+                    tripStartSOC = trip.startSOC
+                    tripEndSOC = trip.endSOC
+                    averageSpeedKmph = trip.averageSpeedKmph.toDouble()
+                    startLatitude = trip.startTripLocationLat
+                    startLongitude = trip.startTripLocationLon
+                    endLatitude = trip.startTripLocationLon
+                    endLongitude = trip.endTripLocationLon
+                    modeStat = trip.modeDuration
+                    tripStartTime = convertMillisToTime(trip.tripStartTimeDurationMs)
+                    tripEndTime = convertMillisToTime(trip.tripEndTimeDurationMs)
+                }
+            }
             maxSpeed = maxOf(maxSpeed, trip.maximumSpeedKmph)
             totalSocConsumption += (trip.endSOC - trip.startSOC)
             totalSpeedAlerts += trip.speedAlertsCount
@@ -219,7 +247,7 @@ class TripReportContentProvider : ContentProvider() {
             maxEndTime = maxOf(maxEndTime, trip.tripEndTimeDurationMs)
         }
 
-        averageSpeed =  totalAverageSpeed / tripList.size
+        averageSpeed = totalAverageSpeed / tripList.size
         totalMovingDuration += (totalTripDuration - totalIdleDuration)
 
         logHelper.log(type = LogType.INFO, tag = tag, message = "Completed trip data aggregation")
@@ -237,7 +265,24 @@ class TripReportContentProvider : ContentProvider() {
             movingDuration = formatMillisToHHMMSS(totalMovingDuration),
             tripDuration = formatMillisToHHMMSS(totalTripDuration),
             tripDays = tripDaysSet.size,
+            lastTrip = lastTrip
         )
+    }
+
+    @SuppressLint("SimpleDateFormat")
+    private fun convertMillisToDate(millis: Long): String {
+        val date = Date(millis)
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd")
+        val dateString = dateFormat.format(date)
+        return dateString
+    }
+
+    @SuppressLint("SimpleDateFormat")
+    private fun convertMillisToTime(millis: Long): String {
+        val date = Date(millis)
+        val timeFormat = SimpleDateFormat("HH:mm:ss")
+        val timeString = timeFormat.format(date)
+        return timeString
     }
 
     @SuppressLint("DefaultLocale")

@@ -5,12 +5,6 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.nlevcluster.sender.model.TripReport
 import com.nlevcluster.sender.trip.TripStatus
-import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toJavaLocalDateTime
-import kotlinx.datetime.toLocalDateTime
-import java.time.format.DateTimeFormatter
-import java.util.UUID
 
 
 @Entity(tableName = "trip_report")
@@ -18,8 +12,6 @@ data class TripReportEntity(
     @PrimaryKey(autoGenerate = true)
     @ColumnInfo(name = "ID")
     val id: Int = 0,
-    @ColumnInfo(name = "TRIP_ID")
-    val tripID: String = "",
     @ColumnInfo(name = "IDLE_HOURS")
     val idleDurationMs: Long = 0,
     @ColumnInfo(name = "AVERAGE_SPEED")
@@ -91,8 +83,7 @@ fun convertToTripReports(entities: List<TripReportEntity>): List<TripReport> {
             tripStartTimeDurationMs = entity.tripStartTimeDurationMs,
             tripEndTimeDurationMs = entity.tripEndTimeDurationMs,
             tripStatus = entity.tripStatus,
-
-        )
+            )
     }
 
 }
