@@ -1,6 +1,6 @@
 package com.nlevcluster.sender.trip.service
 
-import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,14 +9,12 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
-import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Handler
 import android.os.IBinder
 import android.util.Log
-import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.nlevcluster.data_processor.IUartCallback
 import com.nlevcluster.data_processor.IUartService
@@ -25,6 +23,7 @@ import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.model.CanFeed
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.IgnitionStatus
+import com.nlevcluster.sender.model.LocationInfo
 import com.nlevcluster.sender.model.ModeStats
 import com.nlevcluster.sender.model.TripReport
 import com.nlevcluster.sender.model.TripReportPayload
@@ -39,6 +38,7 @@ import com.nlevcluster.sender.trip.db.TripReportEntity
 import com.nlevcluster.sender.trip.db.convertToTripReports
 import com.nlevcluster.sender.util.MQTTUtil
 import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,15 +46,20 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import logcat.asLog
@@ -68,6 +73,10 @@ class TripProcessingService : Service() {
 
     @Inject
     lateinit var logHelper: LogHelper
+
+    @Inject
+    @ApplicationContext
+    lateinit var context: Context
 
     @Inject
     lateinit var portalMQTTClient: MQTTUtil
@@ -131,8 +140,6 @@ class TripProcessingService : Service() {
     private var previousMode: EvMode? = null
     private var modeStatsJson = ""
 
-    private var currentLocation: Location? = null
-
     private var isTripStarted = false
     private var isTripValid = false
     private var isIdleValid = false
@@ -148,12 +155,10 @@ class TripProcessingService : Service() {
 
     private val _canFeed = MutableStateFlow<CanFeed?>(null)
     private val canFeed: StateFlow<CanFeed?> = _canFeed.asStateFlow()
-
     private val _tripStatus = MutableStateFlow(TripStatus.NOT_STARTED)
 
-    private lateinit var locationManager: LocationManager
-    private val locationListener = LocationListener { location ->
-        currentLocation = location
+    private val locationManager: LocationManager by lazy {
+        context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
 
     init {
@@ -227,6 +232,42 @@ class TripProcessingService : Service() {
         }
     }.catch { logHelper.log(LogType.ERROR, "UART data error: $it") }
 
+    @SuppressLint("MissingPermission")
+    val currentLocation: Flow<Location> = callbackFlow {
+        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            logHelper.log(LogType.INFO, "GPS provider disabled", tag)
+            logcat("GPS_LOCATION") { "GPS provider disabled" }
+            close()
+            return@callbackFlow
+        }
+
+        val listener = LocationListener { location ->
+            logHelper.log(LogType.DEBUG, "Location update success $location", tag)
+            Log.d("MOCK_GPS","TripProcessingService - location - $location")
+            trySend(location).isSuccess
+        }
+
+        withContext(Dispatchers.Main) {
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                1000L,
+                1f,
+                listener
+            )
+        }
+
+        awaitClose {
+            locationManager.removeUpdates(listener)
+            logHelper.log(LogType.INFO, "Location update stopped", tag)
+        }
+    }.catch { e ->
+        logHelper.log(LogType.ERROR, "Location updates Failed ${e.asLog()}", tag)
+    }.stateIn(
+        externalScope,
+        SharingStarted.Lazily,
+        Location(null)
+    )
+
     private fun bindToSerialService() {
         val serviceIntent = Intent(SERIAL_SERVICE_INTENT).apply {
             setPackage(SERIAL_SERVICE_PACKAGE_NAME)
@@ -263,6 +304,17 @@ class TripProcessingService : Service() {
                         message = "UART data error: $it"
                     )
                 }
+                .conflate()
+                .combine(currentLocation) { canFeed, location ->
+                    canFeed.currentLocation = LocationInfo(
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        accuracy = location.accuracy.toDouble(),
+                        speed = location.speed,
+                        altitude = location.altitude.toFloat()
+                    )
+                    canFeed
+                }
                 .collect { canData ->
                     updateVehicleState(determineVehicleState(canData))
                     updateCanFeed(canData)
@@ -285,6 +337,7 @@ class TripProcessingService : Service() {
                 vehicleState,
                 canFeed.filterNotNull().distinctUntilChanged()
             ) { state, feed ->
+                Log.d("SETUP_PROCESSING","TripProcessingService - setupTripProcessing - feed - $feed")
                 Pair(state, feed)
             }.collect { (state, feed) ->
                 processTrip(state, feed)
@@ -562,8 +615,8 @@ class TripProcessingService : Service() {
                     startOdometer = startOdometer,
                     tripStartTimeDurationMs = tripStartTimeDurationMs,
                     tripStatus = _tripStatus.value,
-                    startTripLocationLat = currentLocation?.latitude ?: 0.0,
-                    startTripLocationLon = currentLocation?.longitude ?: 0.0
+                    startTripLocationLat = canFeed.currentLocation?.latitude?:0.0,
+                    startTripLocationLon = canFeed.currentLocation?.longitude?: 0.0
                 )
             )?.toInt() ?: 0
 
@@ -608,8 +661,8 @@ class TripProcessingService : Service() {
                 speedAlertsCount = speedAlertCount,
                 harshAlertsCount = harshAlertsCount,
                 modeDuration = modeStatsJson,
-                endTripLocationLat = currentLocation?.latitude ?: 0.0,
-                endTripLocationLon = currentLocation?.longitude ?: 0.0
+                endTripLocationLat = canFeed.currentLocation?.latitude?:0.0,
+                endTripLocationLon = canFeed.currentLocation?.longitude?: 0.0
             )
             updated?.let { tripDao?.updateTrip(it) }
             // Start trip sync after database update
@@ -672,20 +725,6 @@ class TripProcessingService : Service() {
         super.onCreate()
 
         Log.d("Idle_Process", "TripProcessingService - onCreate()")
-
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                1000L,
-                0f,
-                locationListener
-            )
-        } else {
-            Log.e("GPS", "Location permission not granted")
-        }
 
         tripDao = TripReportDatabase.getInstance(applicationContext).tripReportDao()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
@@ -831,7 +870,6 @@ class TripProcessingService : Service() {
         unbindService(serviceConnection)
         stopTripSync()
         super.onDestroy()
-        locationManager.removeUpdates(locationListener)
     }
 
     fun String?.isValidJson(): Boolean {

@@ -222,7 +222,7 @@ class TripReportContentProvider : ContentProvider() {
                     averageSpeedKmph = trip.averageSpeedKmph.toDouble()
                     startLatitude = trip.startTripLocationLat
                     startLongitude = trip.startTripLocationLon
-                    endLatitude = trip.startTripLocationLon
+                    endLatitude = trip.endTripLocationLat
                     endLongitude = trip.endTripLocationLon
                     modeStat = trip.modeDuration
                     tripStartTime = convertMillisToTime(trip.tripStartTimeDurationMs)
