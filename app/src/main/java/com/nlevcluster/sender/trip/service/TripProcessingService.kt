@@ -236,14 +236,12 @@ class TripProcessingService : Service() {
     val currentLocation: Flow<Location> = callbackFlow {
         if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
             logHelper.log(LogType.INFO, "GPS provider disabled", tag)
-            logcat("GPS_LOCATION") { "GPS provider disabled" }
             close()
             return@callbackFlow
         }
 
         val listener = LocationListener { location ->
             logHelper.log(LogType.DEBUG, "Location update success $location", tag)
-            Log.d("MOCK_GPS","TripProcessingService - location - $location")
             trySend(location).isSuccess
         }
 
@@ -337,7 +335,6 @@ class TripProcessingService : Service() {
                 vehicleState,
                 canFeed.filterNotNull().distinctUntilChanged()
             ) { state, feed ->
-                Log.d("SETUP_PROCESSING","TripProcessingService - setupTripProcessing - feed - $feed")
                 Pair(state, feed)
             }.collect { (state, feed) ->
                 processTrip(state, feed)
@@ -372,10 +369,7 @@ class TripProcessingService : Service() {
 
     private suspend fun processTrip(vehicleState: VehicleState, canFeed: CanFeed) {
         try {
-            Log.d("Alert_Process", "TripProcessingService - processTrip")
             updateModeStats(canFeed.evMode, canFeed.odometer.currentRideInKm)
-            Log.d("Alert_Process", "modeDurations - ${modeStats}")
-
             when (vehicleState) {
                 VehicleState.RUNNING -> handleRunningState(canFeed)
                 VehicleState.IDLE -> handleIdleState(canFeed)
@@ -400,18 +394,7 @@ class TripProcessingService : Service() {
         detectSpeedAlert(canFeed.transmission.speed)
         if (detectHarshAccelerationAlert(canFeed.transmission.speed)) {
             harshAccelerationAlertCount += 1
-            Log.d(
-                "Harsh_Alert",
-                "detectHarshAccelerationAlert - HarshAccelerationAlertCount Increased - $harshAccelerationAlertCount"
-            )
         }
-//        if (detectHarshBrakingAlert(canFeed.transmission.speed)) {
-//            harshBrakingAlertCount += 1
-//            Log.d(
-//                "Harsh_Alert",
-//                "detectHarshBrakingAlert - HarshBrakingAlertCount Increased - $harshBrakingAlertCount"
-//            )
-//        }
         handleMaxSpeed(canFeed)
         updateRunningAverage(canFeed.transmission.speed)
         if (canFeed.odometer.currentRideInKm > 0.500) {
@@ -424,36 +407,20 @@ class TripProcessingService : Service() {
     }
 
     private fun handleIdleState(canFeed: CanFeed) {
-        Log.d("Idle_Process", "TripProcessingService - VehicleState.IDLE - ")
         if (canFeed.odometer.currentRideInKm > 0) {
             if (!isIdleValid) {
                 startingIdleTime = System.currentTimeMillis()
-                Log.d(
-                    "Idle_Process",
-                    "TripProcessingService - VehicleState.IDLE - tripStatus - ${_tripStatus.value} isIdleValid - $isIdleValid" +
-                            "startingIdleTime - $startingIdleTime"
-                )
                 isIdleValid = !isIdleValid
             }
-
 
             val currentTime = System.currentTimeMillis()
             val currentIdleTime = currentTime - startingIdleTime
             if (!idleAlertCheckFlag) {
                 if (currentIdleTime > IDLE_THRESHOLD) {
-                    Log.d(
-                        "Idle_Alert",
-                        "TripProcessingService - Idle State > 10_000 idleAlertCount - $idleAlertCount"
-                    )
                     idleAlertCount += 1
                     idleAlertCheckFlag = true
                 }
-                Log.d(
-                    "Idle_Alert",
-                    "TripProcessingService - handleIdleState - $currentIdleTime idleAlertCount - $idleAlertCount"
-                )
             }
-
         }
     }
 
@@ -509,11 +476,6 @@ class TripProcessingService : Service() {
         totalIdleTime += currentIdleTime
         idleAlertCheckFlag = false
         isIdleValid = !isIdleValid
-        Log.d(
-            "Idle_Process",
-            "TripProcessingService - isIdleValid called() endingIdleTime - $endingIdleTime " +
-                    "totalIdleTime - $totalIdleTime isIdleValid - $isIdleValid"
-        )
     }
 
     private fun detectSpeedAlert(currentSpeed: Int) {
@@ -526,13 +488,11 @@ class TripProcessingService : Service() {
                 lastOverSpeedTime = currentTime
                 lastAlertTime = currentTime
                 speedAlertCount++
-                Log.d("Alert_Process", "Speed Alert! (Initial) Count: $speedAlertCount")
             } else {
                 val elapsed = currentTime - lastAlertTime
                 if (elapsed >= SPEED_LIMIT_ALERT_THRESHOLD) {
                     lastAlertTime = currentTime
                     speedAlertCount++
-                    Log.d("Alert_Process", "Speed Alert! (Initial) Count: $speedAlertCount")
                 }
             }
         } else {
@@ -559,26 +519,10 @@ class TripProcessingService : Service() {
 
     }
 
-    private fun detectHarshBrakingAlert(currentSpeed: Int): Boolean {
+    private fun updateModeStats(currentMode: EvMode, currentOdometer: Double) {
 
-        val now = System.currentTimeMillis()
-        val deltaTime = now - lastTimestampHarshBraking
-        val deltaSpeed = kotlin.math.abs(harshBrakingPreviousSpeed - currentSpeed)
-        harshBrakingPreviousSpeed = currentSpeed
-
-        return if (deltaSpeed >= speedDeltaThreshold && deltaTime >= speedDeltaDurationThreshold) {
-            lastTimestampHarshBraking = now
-            true
-        } else {
-            false
-        }
-
-    }
-
-    fun updateModeStats(currentMode: EvMode, currentOdometer: Double) {
         val currentTime = System.currentTimeMillis()
 
-        // First time setup
         if (lastUpdateTime == 0L) {
             lastUpdateTime = currentTime
             lastOdometer = currentOdometer
@@ -589,7 +533,6 @@ class TripProcessingService : Service() {
         val duration = currentTime - lastUpdateTime
         val distance = currentOdometer - lastOdometer
 
-        // Safeguard if odometer glitches backwards
         if (duration >= 0 && distance >= 0) {
             // Always update the previous mode (even if same)
             previousMode?.let { mode ->
@@ -604,6 +547,7 @@ class TripProcessingService : Service() {
         lastUpdateTime = currentTime
         lastOdometer = currentOdometer
         previousMode = currentMode
+
     }
 
 
@@ -621,7 +565,7 @@ class TripProcessingService : Service() {
             )?.toInt() ?: 0
 
             isTripValid = true
-        }.join() // Wait for database operation to complete
+        }.join()
     }
 
     private fun completeTrip(canFeed: CanFeed) {
@@ -630,19 +574,11 @@ class TripProcessingService : Service() {
         tripEndTimeDurationMs = System.currentTimeMillis()
         averageSpeed = getAverageSpeed()
         val harshAlertsCount = harshAccelerationAlertCount + harshBrakingAlertCount
-
         modeStatsJson = Json.encodeToString(modeStats)
-        val restored = Json.decodeFromString<MutableMap<EvMode, ModeStats>>(modeStatsJson)
-        Log.d("Complete_Trip", "completeTrip - restored Mode Duration - $restored")
-
         if (isIdleValid) {
             endingIdleTime = System.currentTimeMillis()
             totalIdleTime += (endingIdleTime - startingIdleTime)
             idleAlertCheckFlag = false
-            Log.d(
-                "Idle_Process",
-                "TripProcessingService - VehicleState.STOP - isIdleValid - $isIdleValid startingIdleTime - $startingIdleTime  endingIdleTime - $endingIdleTime totalIdleTime - $totalIdleTime"
-            )
         }
 
         _tripStatus.value = TripStatus.COMPLETED
@@ -665,9 +601,7 @@ class TripProcessingService : Service() {
                 endTripLocationLon = canFeed.currentLocation?.longitude?: 0.0
             )
             updated?.let { tripDao?.updateTrip(it) }
-            // Start trip sync after database update
             startTripSync()
-            // Reset trip state
             resetTripState()
         }
     }
@@ -724,12 +658,11 @@ class TripProcessingService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        Log.d("Idle_Process", "TripProcessingService - onCreate()")
-
         tripDao = TripReportDatabase.getInstance(applicationContext).tripReportDao()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         createNLSenderNotificationChannel()
         bindToSerialService()
+
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -753,7 +686,6 @@ class TripProcessingService : Service() {
                 return START_REDELIVER_INTENT
             }
         } catch (e: Exception) {
-            Log.d(tag, "Exception Occurred TripSyncService - ${e.message}")
             logcat { e.asLog() }
         }
 
