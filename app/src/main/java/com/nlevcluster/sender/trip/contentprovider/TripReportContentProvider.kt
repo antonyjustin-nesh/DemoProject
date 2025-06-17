@@ -8,7 +8,6 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Build
 import androidx.annotation.RequiresApi
-import com.google.gson.Gson
 import com.nlevcluster.sender.di.ProviderEntryPoint
 import com.nlevcluster.sender.model.MonthlyTripReport
 import com.nlevcluster.sender.model.TripDetails
@@ -18,8 +17,6 @@ import com.nlevcluster.sender.nllogger.NLLoggerLogHelper
 import com.nlevcluster.sender.trip.db.TripReportDao
 import com.nlevcluster.sender.trip.db.TripReportEntity
 import dagger.hilt.android.EntryPointAccessors
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
@@ -34,11 +31,9 @@ import java.util.concurrent.TimeUnit
 class TripReportContentProvider : ContentProvider() {
 
     private val tag = "TripReportContentProvider"
-    private val coroutineScope = CoroutineScope(Dispatchers.IO)
 
     private lateinit var tripDao: TripReportDao
     lateinit var logHelper: LogHelper
-    lateinit var gson: Gson
     private val json = Json { ignoreUnknownKeys = true }
 
     @RequiresApi(Build.VERSION_CODES.R)
@@ -49,7 +44,6 @@ class TripReportContentProvider : ContentProvider() {
             context,
             ProviderEntryPoint::class.java
         )
-        gson = entryPoint.gson()
         tripDao = entryPoint.tripDao()
         logHelper = NLLoggerLogHelper(context)
 
@@ -209,6 +203,9 @@ class TripReportContentProvider : ContentProvider() {
         val dateFormatter = SimpleDateFormat("yyyy-MM-dd")
         val lastTrip = TripDetails()
 
+        var monthStartOdometer: Double = 0.0
+        var monthEndOdometer: Double = 0.0
+
         tripList.forEachIndexed { index, trip ->
             if (index == 0) {
                 lastTrip.apply {
@@ -228,6 +225,10 @@ class TripReportContentProvider : ContentProvider() {
                     tripStartTime = convertMillisToTime(trip.tripStartTimeDurationMs)
                     tripEndTime = convertMillisToTime(trip.tripEndTimeDurationMs)
                 }
+                monthEndOdometer = trip.endOdometer
+            }
+            if(index == tripList.lastIndex) {
+                monthStartOdometer = trip.startOdometer
             }
             maxSpeed = maxOf(maxSpeed, trip.maximumSpeedKmph)
             totalSocConsumption += (trip.endSOC - trip.startSOC)
@@ -253,6 +254,8 @@ class TripReportContentProvider : ContentProvider() {
         logHelper.log(type = LogType.INFO, tag = tag, message = "Completed trip data aggregation")
 
         return MonthlyTripReport(
+            monthStartOdometer = monthStartOdometer,
+            monthEndOdometer = monthEndOdometer,
             averageSpeedKmph = averageSpeed,
             maximumSpeedKmph = maxSpeed,
             tripCount = totalTrips,
