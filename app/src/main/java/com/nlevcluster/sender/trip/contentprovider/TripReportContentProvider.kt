@@ -78,27 +78,37 @@ class TripReportContentProvider : ContentProvider() {
     ): Cursor? {
         return when (uri.lastPathSegment) {
             MONTHLY_REPORT -> {
-                val selectedDate = uri.getQueryParameter("selectedDate")
+//                val selectedDate = uri.getQueryParameter("selectedDate")
+//                val cursor = MatrixCursor(arrayOf(MONTHLY_REPORT))
+
+                val startDate = uri.getQueryParameter("startDate")
+                val endDate = uri.getQueryParameter("endDate")
                 val cursor = MatrixCursor(arrayOf(MONTHLY_REPORT))
 
                 logHelper.log(
                     type = LogType.INFO,
                     tag = tag,
-                    message = "Query received for MONTHLY_REPORT with selectedDate: $selectedDate"
+                    message = "Query received for MONTHLY_REPORT with startDate: $startDate endDate: $endDate"
                 )
 
                 try {
 
+//                    val dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
+//                    val zoneId = ZoneId.systemDefault()
+//
+//                    val firstDayOfMonth = LocalDate.now().withDayOfMonth(1)
+//                    val startOfDay = LocalDateTime.of(firstDayOfMonth, LocalTime.MIDNIGHT)
+//                    val formattedDateTime = startOfDay.format(dateFormatter)
+//
+//                    val startDateTime =
+//                        LocalDateTime.parse(formattedDateTime, dateFormatter)
+//                    val endDateTime = LocalDateTime.parse(selectedDate, dateFormatter)
+
                     val dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
                     val zoneId = ZoneId.systemDefault()
 
-                    val firstDayOfMonth = LocalDate.now().withDayOfMonth(1)
-                    val startOfDay = LocalDateTime.of(firstDayOfMonth, LocalTime.MIDNIGHT)
-                    val formattedDateTime = startOfDay.format(dateFormatter)
-
-                    val startDateTime =
-                        LocalDateTime.parse(formattedDateTime, dateFormatter)
-                    val endDateTime = LocalDateTime.parse(selectedDate, dateFormatter)
+                    val startDateTime = LocalDateTime.parse(startDate, dateFormatter)
+                    val endDateTime = LocalDateTime.parse(endDate, dateFormatter)
 
                     logHelper.log(
                         type = LogType.INFO,
@@ -380,9 +390,9 @@ class TripReportContentProvider : ContentProvider() {
             movingDuration = formatMillisToHHMMSS(totalMovingDuration),
             tripDuration = formatMillisToHHMMSS(totalTripDuration),
             tripDays = tripDaysSet.size,
-            ecoDistance = ecoDistance.toInt(),
-            sportsDistance = sportsDistance.toInt(),
-            powerDistance = powerDistance.toInt(),
+            ecoDistance = ecoDistance,
+            sportsDistance = sportsDistance,
+            powerDistance = powerDistance,
             vehicleUsage = vehicleUsage,
             lastTrip = lastTrip
         )
@@ -450,16 +460,16 @@ class TripReportContentProvider : ContentProvider() {
     private fun formatMillisToHHMMSS(millis: Long): String {
         val hours = TimeUnit.MILLISECONDS.toHours(millis)
         val minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60
-        //val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60
-        return String.format("%02d:%02d", hours, minutes/*, seconds*/)
+        val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60
+        return String.format("%02d:%02d:%02d", hours, minutes, seconds)
     }
 
     private fun getUsageLevel(usageLimit: Int): Int {
         return when {
-            usageLimit <= 0 -> -1  // Handle invalid/negative input (optional)
-            usageLimit < 30 -> 0   // 0-29 → return 0
-            usageLimit < 50 -> 1   // 30-49 → return 1
-            else -> 2              // 50+ → return 2
+            usageLimit <= 0 -> 0  // Handle invalid/negative input (optional)
+            usageLimit < 30 -> 1   // 0-29 → return 0
+            usageLimit < 50 -> 2   // 30-49 → return 1
+            else -> 3              // 50+ → return 2
         }
     }
 
@@ -467,6 +477,7 @@ class TripReportContentProvider : ContentProvider() {
         totalConsumedEnergy: Int,
         totalTripDistanceKm: Int
     ): Float {
+        if (totalConsumedEnergy == 0 || totalTripDistanceKm == 0) return 0f
         val totalConsumedEnergyWh = (totalConsumedEnergy / 100.0) * NOMINAL_ENERGY
         val totalConsumedEnergyKWh = totalConsumedEnergyWh / 1000.0
         return (totalConsumedEnergyKWh/totalTripDistanceKm).toFloat()

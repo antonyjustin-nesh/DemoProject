@@ -18,9 +18,9 @@ data class MonthlyTripReport(
     val idleDuration: String = "",
     val movingDuration: String = "",
     val tripDuration: String = "",
-    val ecoDistance: Int = 0,
-    val sportsDistance: Int = 0,
-    val powerDistance: Int = 0,
+    val ecoDistance: Double = 0.0,
+    val sportsDistance: Double = 0.0,
+    val powerDistance: Double = 0.0,
     val tripDays: Int = 0,
     val vehicleUsage: Int = 0,
     val lastTrip: TripDetails = TripDetails()
