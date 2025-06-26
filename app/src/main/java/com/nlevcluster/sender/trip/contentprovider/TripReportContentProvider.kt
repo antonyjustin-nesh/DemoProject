@@ -7,7 +7,6 @@ import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Build
-import android.util.Log
 import androidx.annotation.RequiresApi
 import com.nlevcluster.sender.di.ProviderEntryPoint
 import com.nlevcluster.sender.model.DayTripDetails
@@ -24,13 +23,8 @@ import com.nlevcluster.sender.trip.db.TripReportEntity
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
@@ -78,8 +72,6 @@ class TripReportContentProvider : ContentProvider() {
     ): Cursor? {
         return when (uri.lastPathSegment) {
             MONTHLY_REPORT -> {
-//                val selectedDate = uri.getQueryParameter("selectedDate")
-//                val cursor = MatrixCursor(arrayOf(MONTHLY_REPORT))
 
                 val startDate = uri.getQueryParameter("startDate")
                 val endDate = uri.getQueryParameter("endDate")
@@ -92,17 +84,6 @@ class TripReportContentProvider : ContentProvider() {
                 )
 
                 try {
-
-//                    val dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
-//                    val zoneId = ZoneId.systemDefault()
-//
-//                    val firstDayOfMonth = LocalDate.now().withDayOfMonth(1)
-//                    val startOfDay = LocalDateTime.of(firstDayOfMonth, LocalTime.MIDNIGHT)
-//                    val formattedDateTime = startOfDay.format(dateFormatter)
-//
-//                    val startDateTime =
-//                        LocalDateTime.parse(formattedDateTime, dateFormatter)
-//                    val endDateTime = LocalDateTime.parse(selectedDate, dateFormatter)
 
                     val dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
                     val zoneId = ZoneId.systemDefault()
@@ -322,7 +303,10 @@ class TripReportContentProvider : ContentProvider() {
                     socConsumption = (trip.startSOC - trip.endSOC)
                     tripStartSOC = trip.startSOC
                     tripEndSOC = trip.endSOC
-                    batteryEfficiency = batteryEfficiencyKmPerUnit((trip.startSOC - trip.endSOC), (trip.endOdometer - trip.startOdometer).toInt())
+                    batteryEfficiency = batteryEfficiencyKmPerUnit(
+                        (trip.startSOC - trip.endSOC),
+                        (trip.endOdometer - trip.startOdometer).toInt()
+                    )
                     averageSpeedKmph = trip.averageSpeedKmph.toDouble()
                     tripStartOdometer = trip.startOdometer
                     tripEndOdometer = trip.endOdometer
@@ -466,10 +450,10 @@ class TripReportContentProvider : ContentProvider() {
 
     private fun getUsageLevel(usageLimit: Int): Int {
         return when {
-            usageLimit <= 0 -> 0  // Handle invalid/negative input (optional)
-            usageLimit < 30 -> 1   // 0-29 → return 0
-            usageLimit < 50 -> 2   // 30-49 → return 1
-            else -> 3              // 50+ → return 2
+            usageLimit <= 0 -> 0
+            usageLimit < 30 -> 1
+            usageLimit < 50 -> 2
+            else -> 3
         }
     }
 
@@ -480,7 +464,7 @@ class TripReportContentProvider : ContentProvider() {
         if (totalConsumedEnergy == 0 || totalTripDistanceKm == 0) return 0f
         val totalConsumedEnergyWh = (totalConsumedEnergy / 100.0) * NOMINAL_ENERGY
         val totalConsumedEnergyKWh = totalConsumedEnergyWh / 1000.0
-        return (totalConsumedEnergyKWh/totalTripDistanceKm).toFloat()
+        return (totalConsumedEnergyKWh / totalTripDistanceKm).toFloat()
     }
 
     companion object {

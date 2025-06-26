@@ -56,8 +56,6 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -116,7 +114,6 @@ class TripProcessingService : Service() {
     private var sampleCount = 0
     private var averageSpeed = 0
     private var harshAccelerationPreviousSpeed = 0
-    private var harshBrakingPreviousSpeed = 0
     private var lastTimestampHarshAcceleration: Long = 0
     private var lastTimestampHarshBraking: Long = 0
     private val speedDeltaThreshold = 10
@@ -147,25 +144,18 @@ class TripProcessingService : Service() {
     private var isTripValid = false
     private var isIdleValid = false
 
-    private var gpsSpeed = 0.0f
     private var tripDao: TripReportDao? = null
     private var imei: String? = null
     private var tripSyncJob: Job? = null
 
     // StateFlows for reactive state management
     private val _vehicleState = MutableStateFlow(VehicleState.UNKNOWN)
-    private val vehicleState: StateFlow<VehicleState> = _vehicleState.asStateFlow()
 
     private val _canFeed = MutableStateFlow<CanFeed?>(null)
-    private val canFeed: StateFlow<CanFeed?> = _canFeed.asStateFlow()
     private val _tripStatus = MutableStateFlow(TripStatus.NOT_STARTED)
 
     private val locationManager: LocationManager by lazy {
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    }
-
-    init {
-        //setupTripProcessing()
     }
 
     private val serviceConnection = object : ServiceConnection {
@@ -295,34 +285,6 @@ class TripProcessingService : Service() {
         }
     }
 
-//    private fun startObservingUARTData() {
-//        serialListenerJob = externalScope.launch(Dispatchers.IO) {
-//            serialServiceDataFlow
-//                .catch {
-//                    logHelper.log(
-//                        tag = "startObservingUARTData",
-//                        type = LogType.ERROR,
-//                        message = "UART data error: $it"
-//                    )
-//                }
-//                .conflate()
-//                .combine(currentLocation) { canFeed, location ->
-//                    canFeed.currentLocation = LocationInfo(
-//                        latitude = location.latitude,
-//                        longitude = location.longitude,
-//                        accuracy = location.accuracy.toDouble(),
-//                        speed = location.speed,
-//                        altitude = location.altitude.toFloat()
-//                    )
-//                    canFeed
-//                }
-//                .collect { canData ->
-//                    updateVehicleState(determineVehicleState(canData))
-//                    updateCanFeed(canData)
-//                }
-//        }
-//    }
-
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun startObservingUARTData() {
         serialListenerJob = externalScope.launch(Dispatchers.IO) {
@@ -354,19 +316,6 @@ class TripProcessingService : Service() {
                     }
                 }.collect()
         }
-    }
-
-    private fun updateVehicleState(newState: VehicleState) {
-        _vehicleState.value = newState
-    }
-
-    private fun updateCanFeed(newCanFeed: CanFeed) {
-        _canFeed.value = newCanFeed
-    }
-
-    private fun setupTripProcessing() {
-        // Combine vehicle state and canFeed to process trip logic
-
     }
 
     private fun determineVehicleState(canFeed: CanFeed): VehicleState {
@@ -586,8 +535,8 @@ class TripProcessingService : Service() {
                     startOdometer = startOdometer,
                     tripStartTimeDurationMs = tripStartTimeDurationMs,
                     tripStatus = _tripStatus.value,
-                    startTripLocationLat = canFeed.currentLocation?.latitude?:0.0,
-                    startTripLocationLon = canFeed.currentLocation?.longitude?: 0.0
+                    startTripLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
+                    startTripLocationLon = canFeed.currentLocation?.longitude ?: 0.0
                 )
             )?.toInt() ?: 0
 
@@ -624,8 +573,8 @@ class TripProcessingService : Service() {
                 speedAlertsCount = speedAlertCount,
                 harshAlertsCount = harshAlertsCount,
                 modeDuration = modeStatsJson,
-                endTripLocationLat = canFeed.currentLocation?.latitude?:0.0,
-                endTripLocationLon = canFeed.currentLocation?.longitude?: 0.0
+                endTripLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
+                endTripLocationLon = canFeed.currentLocation?.longitude ?: 0.0
             )
             updated?.let { tripDao?.updateTrip(it) }
             startTripSync()
@@ -694,24 +643,14 @@ class TripProcessingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
+
             val initialNotification =
                 createNLSenderNotification("NL-Sender ", "Trip processing service started")
             startForeground(NOTIFICATION_ID, initialNotification)
 
             val sharedPref = getSharedPreferences("properties", MODE_PRIVATE)
             imei = intent?.getStringExtra("IMEI") ?: sharedPref.getString("imei", null)
-            imei?.let { imeiValue ->
-                // Check if IMEI is already stored, if not, save it
-                if (sharedPref.getString("imei", null) == null) {
-                    with(sharedPref.edit()) {
-                        putString("imei", imeiValue)
-                        commit()
-                    }
-                }
 
-                logcat { "Received imei Number - $imei" }
-                return START_REDELIVER_INTENT
-            }
         } catch (e: Exception) {
             logcat { e.asLog() }
         }
