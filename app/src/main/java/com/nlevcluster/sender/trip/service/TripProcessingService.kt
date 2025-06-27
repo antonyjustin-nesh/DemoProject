@@ -15,8 +15,8 @@ import android.location.LocationManager
 import android.os.Handler
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.nlevcluster.data_processor.IUartCallback
-import com.nlevcluster.data_processor.IUartService
+import com.nlevcluster.aidl.IProcessedFeedCallback
+import com.nlevcluster.aidl.IUartService
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.model.CanFeed
@@ -49,8 +49,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
@@ -192,12 +190,7 @@ class TripProcessingService : Service() {
     }
 
     private val serialServiceDataFlow = callbackFlow {
-        val callback = object : IUartCallback.Stub() {
-
-            override fun onRawFeedReceived(data: String?) {
-                // NO-OP
-            }
-
+        val callback = object : IProcessedFeedCallback.Stub() {
             override fun onProcessedFeedReceived(data: String?) {
                 logcat { "RX $data" }
                 if (data != null) {
@@ -218,10 +211,10 @@ class TripProcessingService : Service() {
             }
         }
 
-        uartService?.registerCallback(callback)
+        uartService?.registerProcessedFeedCallback(callback)
 
         awaitClose {
-            uartService?.unregisterCallback(callback)
+            uartService?.unregisterProcessedFeedCallback(callback)
         }
     }.catch { logHelper.log(LogType.ERROR, "UART data error: $it") }
 

@@ -17,7 +17,7 @@ android {
 
     defaultConfig {
         applicationId = "com.nlevcluster.sender"
-        minSdk = 26
+        minSdk = 31
         targetSdk = 33
         versionCode = 1
         versionName = "0.2.0"
@@ -72,6 +72,7 @@ android {
 }
 
 dependencies {
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
 
     implementation("androidx.core:core-ktx:1.10.1")
     implementation("androidx.appcompat:appcompat:1.6.1")
