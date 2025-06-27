@@ -388,6 +388,8 @@ class DataSendService : Service() {
                 createNLSenderNotification("NL-Sender ", "Data sync service started")
             startForeground(NOTIFICATION_ID, initialNotification)
 
+            initTripService(applicationContext)
+
             val sharedPref = getSharedPreferences("properties", MODE_PRIVATE)
             imei = intent?.getStringExtra("IMEI") ?: sharedPref.getString("imei", null)
             imei?.let { imeiValue ->
@@ -404,7 +406,6 @@ class DataSendService : Service() {
                     logcat { "Received imei Number - $imei" }
                     monitorMQTTConnection(imeiValue)
                     initPortalMQTTClient(imeiValue)
-                    initTripService(applicationContext)
                     return START_REDELIVER_INTENT
                 }
             }

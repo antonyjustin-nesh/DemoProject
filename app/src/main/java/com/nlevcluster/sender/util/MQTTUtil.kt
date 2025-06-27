@@ -11,7 +11,7 @@ import logcat.logcat
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private const val KEEP_ALIVE = 3600
+private const val KEEP_ALIVE = 3600L
 private const val TAG = "MQTT_UTIL"
 /**
  *
@@ -56,7 +56,8 @@ class MQTTUtil @Inject constructor(
                 .buildAsync()
         }
 
-        client?.connectWith()?.cleanStart(false)?.keepAlive(KEEP_ALIVE)
+        client?.connectWith()?.cleanStart(false)?.keepAlive(KEEP_ALIVE.toInt())
+            ?.sessionExpiryInterval(KEEP_ALIVE)
             ?.send()
             ?.whenComplete { _, throwable ->
                 if (throwable != null) {
@@ -142,6 +143,7 @@ class MQTTUtil @Inject constructor(
         client?.publishWith()
             ?.topic(topic)
             ?.payload(message.toByteArray())
+            ?.messageExpiryInterval(KEEP_ALIVE)
             ?.qos(qos)
             ?.send()
             ?.whenComplete { ack, throwable ->
