@@ -348,7 +348,7 @@ class TripProcessingService : Service() {
                 }
             }
         } catch (e: Exception) {
-            //handleTripException(canFeed, e)
+            handleTripException(canFeed, e)
         }
     }
 
@@ -412,6 +412,7 @@ class TripProcessingService : Service() {
                 tripStatus = TripStatus.FAILED
             )
             val updateStatus = updated?.let { tripDao?.updateTrip(it) }
+            logHelper.log(type = LogType.ERROR, message = "Exception occurred when handling trip - ${exception.asLog()}")
         }
     }
 
