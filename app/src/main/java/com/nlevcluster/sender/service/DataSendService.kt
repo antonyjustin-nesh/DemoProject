@@ -20,8 +20,8 @@ import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
-import com.nlevcluster.data_processor.IUartCallback
-import com.nlevcluster.data_processor.IUartService
+import com.nlevcluster.aidl.IProcessedFeedCallback
+import com.nlevcluster.aidl.IUartService
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.data.constants.Constants.APPLY_VIP_URI
@@ -153,11 +153,7 @@ class DataSendService : Service() {
     }
 
     private val serialServiceDataFlow = callbackFlow {
-        val callback = object : IUartCallback.Stub() {
-
-            override fun onRawFeedReceived(data: String?) {
-                // NO-OP
-            }
+        val callback = object : IProcessedFeedCallback.Stub() {
 
             override fun onProcessedFeedReceived(data: String?) {
                 logcat { "RX $data" }
@@ -189,10 +185,10 @@ class DataSendService : Service() {
             }
         }
 
-        uartService?.registerCallback(callback)
+        uartService?.registerProcessedFeedCallback(callback)
 
         awaitClose {
-            uartService?.unregisterCallback(callback)
+            uartService?.unregisterProcessedFeedCallback(callback)
         }
     }.catch { logHelper.log(LogType.ERROR, "UART data error: $it") }
 
