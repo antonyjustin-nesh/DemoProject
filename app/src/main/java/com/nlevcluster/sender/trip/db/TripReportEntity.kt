@@ -83,7 +83,6 @@ fun convertToTripReports(entities: List<TripReportEntity>): List<TripReport> {
             tripStartTimeDurationMs = entity.tripStartTimeDurationMs,
             tripEndTimeDurationMs = entity.tripEndTimeDurationMs,
             tripStatus = entity.tripStatus,
-            )
+        )
     }
-
 }

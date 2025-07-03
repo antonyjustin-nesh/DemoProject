@@ -273,7 +273,7 @@ class DataSendService : Service() {
                         latitude = location.latitude,
                         longitude = location.longitude,
                         accuracy = location.accuracy.toDouble(),
-                        speed = location.speed,
+                        speed = location.speed * 3.6f,
                         altitude = location.altitude.toFloat()
                     )
                     canFeed

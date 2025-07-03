@@ -20,7 +20,7 @@ android {
         minSdk = 31
         targetSdk = 33
         versionCode = 3
-        versionName = "0.3.0"
+        versionName = "0.3.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -62,6 +62,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+    ksp {
+        arg("room.schemaLocation", "$projectDir/schemas")
     }
     buildFeatures {
         buildConfig = true
