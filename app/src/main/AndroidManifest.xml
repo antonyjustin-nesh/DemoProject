@@ -23,13 +23,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Sender"
         tools:targetApi="31">
+
         <service
             android:name=".service.DataSendService"
             android:enabled="true"
             android:exported="true" />
 
         <service
-            android:name=".trip.service.TripProcessingService"
+            android:name=".report.service.ReportProcessingService"
             android:enabled="true"
             android:exported="true" />
 
@@ -56,8 +57,8 @@
         </activity>
 
         <provider
-            android:name=".trip.contentprovider.TripReportContentProvider"
-            android:authorities="com.nlevcluster.nl_sender.trip.provider"
+            android:name=".report.content_provider.ReportContentProvider"
+            android:authorities="com.nlevcluster.nl_sender.report.provider"
             android:exported="true"
             android:grantUriPermissions="true"
             tools:ignore="ExportedContentProvider" />

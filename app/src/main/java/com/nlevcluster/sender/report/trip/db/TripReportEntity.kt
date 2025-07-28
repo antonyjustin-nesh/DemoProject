@@ -1,11 +1,9 @@
-package com.nlevcluster.sender.trip.db
+package com.nlevcluster.sender.report.trip.db
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import com.nlevcluster.sender.model.TripReport
-import com.nlevcluster.sender.trip.TripStatus
-
+import com.nlevcluster.sender.report.trip.TripStatus
 
 @Entity(tableName = "trip_report")
 data class TripReportEntity(
@@ -28,8 +26,8 @@ data class TripReportEntity(
     val idleAlertsCount: Int = 0,
     @ColumnInfo(name = "HARSH_ALERTS")
     val harshAlertsCount: Int = 0,
-    @ColumnInfo(name = "MODE_DURATION")
-    val modeDuration: String = "",
+    @ColumnInfo(name = "MODE_STATS")
+    val modeStats: String = "",
     @ColumnInfo(name = "REGEN_COUNT")
     val regenCount: Int = 0,
     @ColumnInfo(name = "START_ODOMETER")
@@ -44,10 +42,6 @@ data class TripReportEntity(
     val endTripLocationLat: Double = 0.0,
     @ColumnInfo(name = "END_LONGITUDE")
     val endTripLocationLon: Double = 0.0,
-    @ColumnInfo(name = "START_ENERGY")
-    val startEnergy: Int = 0,
-    @ColumnInfo(name = "END_ENERGY")
-    val endEnergy: Int = 0,
     @ColumnInfo(name = "START_TIME")
     val tripStartTimeDurationMs: Long = 0,
     @ColumnInfo(name = "END_TIME")
@@ -58,31 +52,4 @@ data class TripReportEntity(
     val isSynced: Int = 0,
 )
 
-fun convertToTripReports(entities: List<TripReportEntity>): List<TripReport> {
-    return entities.map { entity ->
-        TripReport(
-            tripId = entity.id,
-            averageSpeedKmph = entity.averageSpeedKmph,
-            maximumSpeedKmph = entity.maximumSpeedKmph,
-            idleDurationMs = entity.idleDurationMs,
-            startSOC = entity.startSOC,
-            endSOC = entity.endSOC,
-            speedAlertsCount = entity.speedAlertsCount,
-            idleAlertsCount = entity.idleAlertsCount,
-            harshAlertsCount = entity.harshAlertsCount,
-            modeDuration = entity.modeDuration,
-            regenCount = entity.regenCount,
-            startOdometer = entity.startOdometer,
-            endOdometer = entity.endOdometer,
-            startTripLocationLat = entity.startTripLocationLat,
-            startTripLocationLon = entity.startTripLocationLon,
-            endTripLocationLat = entity.endTripLocationLat,
-            endTripLocationLon = entity.endTripLocationLon,
-            startEnergy = entity.startEnergy,
-            endEnergy = entity.endEnergy,
-            tripStartTimeDurationMs = entity.tripStartTimeDurationMs,
-            tripEndTimeDurationMs = entity.tripEndTimeDurationMs,
-            tripStatus = entity.tripStatus,
-        )
-    }
-}
+

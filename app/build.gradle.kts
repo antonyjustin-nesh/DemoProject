@@ -19,8 +19,8 @@ android {
         applicationId = "com.nlevcluster.sender"
         minSdk = 31
         targetSdk = 33
-        versionCode = 3
-        versionName = "0.3.1"
+        versionCode = 4
+        versionName = "0.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

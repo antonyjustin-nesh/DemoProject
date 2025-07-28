@@ -1,11 +1,11 @@
-package com.nlevcluster.sender.trip.db
+package com.nlevcluster.sender.report.trip.db
 
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
-import com.nlevcluster.sender.trip.TripStatus
+import com.nlevcluster.sender.report.trip.TripStatus
 
 @Dao
 interface TripReportDao {
@@ -35,7 +35,7 @@ interface TripReportDao {
     fun markTripAsSynced(tripId: Int)
 
     @Query("SELECT * FROM trip_report")
-    suspend fun getAllTrips(): List<TripReportEntity>
+    fun getAllTrips(): List<TripReportEntity>
 
     @Query("DELETE FROM trip_report")
     fun deleteAllTrips()

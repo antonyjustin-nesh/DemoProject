@@ -6,7 +6,7 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.service.DataSendService
-import com.nlevcluster.sender.trip.service.TripProcessingService
+import com.nlevcluster.sender.report.service.ReportProcessingService
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -20,7 +20,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startTripProcessingService() {
-        val intent = Intent(this, TripProcessingService::class.java)
+        val intent = Intent(this, ReportProcessingService::class.java)
         startForegroundService(intent)
         viewModel.log(type = LogType.INFO, message = "Started TripProcessingService")
     }

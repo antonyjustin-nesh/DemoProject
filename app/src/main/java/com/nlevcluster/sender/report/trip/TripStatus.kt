@@ -1,4 +1,4 @@
-package com.nlevcluster.sender.trip
+package com.nlevcluster.sender.report.trip
 
 enum class TripStatus {
     IN_PROGRESS,

@@ -11,6 +11,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 
 data class HeadLight(
-    var status: Boolean = false,
+    val status: Boolean = false,
     val isHighBeam: Boolean = false
 )

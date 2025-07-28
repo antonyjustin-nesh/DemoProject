@@ -1,4 +1,4 @@
-package com.nlevcluster.sender.trip.service
+package com.nlevcluster.sender.report.service
 
 import android.annotation.SuppressLint
 import android.app.Notification
@@ -19,23 +19,31 @@ import com.nlevcluster.aidl.IProcessedFeedCallback
 import com.nlevcluster.aidl.IUartService
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
+import com.nlevcluster.sender.model.Battery
 import com.nlevcluster.sender.model.CanFeed
+import com.nlevcluster.sender.model.ChargeTelemetryData
+import com.nlevcluster.sender.model.ChargingSessionPayload
 import com.nlevcluster.sender.model.EvMode
-import com.nlevcluster.sender.model.IgnitionStatus
 import com.nlevcluster.sender.model.LocationInfo
 import com.nlevcluster.sender.model.ModeStats
-import com.nlevcluster.sender.model.TripReport
 import com.nlevcluster.sender.model.TripReportPayload
+import com.nlevcluster.sender.model.TripTelemetryData
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
+import com.nlevcluster.sender.report.VehicleState
+import com.nlevcluster.sender.report.charge.db.ChargingReportDao
+import com.nlevcluster.sender.report.charge.db.ChargingReportDatabase
+import com.nlevcluster.sender.report.charge.db.ChargingSessionEntity
+import com.nlevcluster.sender.report.charge.mapper.convertToChargingTelemetryData
+import com.nlevcluster.sender.report.trip.ChargingData
+import com.nlevcluster.sender.report.trip.TripStatus
+import com.nlevcluster.sender.report.trip.db.TripReportDao
+import com.nlevcluster.sender.report.trip.db.TripReportDatabase
+import com.nlevcluster.sender.report.trip.db.TripReportEntity
+import com.nlevcluster.sender.report.trip.mapper.convertToTripReports
 import com.nlevcluster.sender.service.NOTIFICATION_ID
-import com.nlevcluster.sender.trip.TripStatus
-import com.nlevcluster.sender.trip.VehicleState
-import com.nlevcluster.sender.trip.db.TripReportDao
-import com.nlevcluster.sender.trip.db.TripReportDatabase
-import com.nlevcluster.sender.trip.db.TripReportEntity
-import com.nlevcluster.sender.trip.db.convertToTripReports
 import com.nlevcluster.sender.util.MQTTUtil
+import com.nlevcluster.sender.util.determineVehicleState
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +63,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -65,10 +74,12 @@ import logcat.asLog
 import logcat.logcat
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
+import kotlin.math.abs
 
 @AndroidEntryPoint
-class TripProcessingService : Service() {
+class ReportProcessingService : Service() {
 
     @Inject
     lateinit var logHelper: LogHelper
@@ -120,10 +131,8 @@ class TripProcessingService : Service() {
     private var harshBrakingAlertCount = 0
 
     private var SPEED_LIMIT = 50
-    private var SPEED_LIMIT_ALERT_THRESHOLD = 20_000
     private var isSpeedOverLimit = false
     private var lastOverSpeedTime = 0L
-    private var lastAlertTime = 0L
     private var speedAlertCount = 0
 
     private val IDLE_THRESHOLD = 10_000
@@ -142,16 +151,30 @@ class TripProcessingService : Service() {
     private var isTripValid = false
     private var isIdleValid = false
 
+
+    private val isChargingValid = AtomicBoolean(false)
+
+    private var chargingSessionId = 0
+    private var endingChargingTimeMillis: Long = 0L
+    private var chargingEndSoc: Int = 0
+    private var totalVoltage = 0
+    private var sampleVoltageCount = 0
+    private var averageVoltage = 0.0
+    private var totalCurrent = 0
+    private var sampleCurrentCount = 0
+    private var averageCurrent = 0.0
+    private var maxBatteryCurrent = 0.0
+    private var maxBatteryVoltage = 0.0
+    private var lastKnownSoc: Int? = null
+    private var currentSoc: Int = 0
+
     private var tripDao: TripReportDao? = null
+    private var chargingDao: ChargingReportDao? = null
     private var imei: String? = null
     private var tripSyncJob: Job? = null
+    private var chargingSyncJob: Job? = null
 
-    // StateFlows for reactive state management
-    private val _vehicleState = MutableStateFlow(VehicleState.UNKNOWN)
-
-    private val _canFeed = MutableStateFlow<CanFeed?>(null)
     private val _tripStatus = MutableStateFlow(TripStatus.NOT_STARTED)
-
     private val locationManager: LocationManager by lazy {
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
@@ -281,6 +304,17 @@ class TripProcessingService : Service() {
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun startObservingUARTData() {
         serialListenerJob = externalScope.launch(Dispatchers.IO) {
+
+//            val batteryCurrentFlow = flow {
+//                var currentValue = -60.0
+//                while (true) {
+//                    emit(currentValue)
+//                    delay(15_000)
+//                    currentValue = if (currentValue == -60.0) 50.0 else -60.0
+//                }
+//            }
+
+
             serialServiceDataFlow
                 .catch {
                     logHelper.log(
@@ -299,50 +333,57 @@ class TripProcessingService : Service() {
                         altitude = location.altitude.toFloat()
                     )
                     canFeed
-                }.flatMapLatest { canData ->
+                }
+//                    .combine(batteryCurrentFlow) { canFeed, batteryCurrent ->
+//                    canFeed.battery = Battery(
+//                        current = batteryCurrent,
+//                        remainingPercent = canFeed.battery.remainingPercent,
+//                        soc = canFeed.battery.soc
+//                    )
+//                    canFeed
+//                    }
+                        .flatMapLatest { canData ->
                     val vehicleState = flowOf(determineVehicleState(canData))
                     combine(
                         vehicleState,
                         flowOf(canData)
                     ) { state, feed ->
+                        logHelper.log(
+                            tag = "vehicleState",
+                            type = LogType.DEBUG,
+                            message = "vehicleState - $state"
+                        )
                         processTrip(state, feed)
                     }
                 }.collect()
         }
     }
 
-    private fun determineVehicleState(canFeed: CanFeed): VehicleState {
-        val canSpeed = canFeed.transmission.speed
-        val ignition = canFeed.ignitionStatus
-
-        return when (ignition) {
-            IgnitionStatus.ON -> {
-                if (canSpeed > 0) {
-                    VehicleState.RUNNING
-                } else if (canSpeed == 0) {
-                    VehicleState.IDLE
-                } else {
-                    VehicleState.UNKNOWN
-                }
-            }
-
-            IgnitionStatus.OFF -> {
-                if (canSpeed == 0) {
-                    VehicleState.STOP
-                } else {
-                    VehicleState.UNKNOWN
-                }
-            }
-        }
-    }
-
     private suspend fun processTrip(vehicleState: VehicleState, canFeed: CanFeed) {
         try {
+            currentSoc = canFeed.battery.remainingPercent
+            if (lastKnownSoc != null && lastKnownSoc != currentSoc) {
+                val chargingData = json.encodeToString(
+                    ChargingData(
+                    vehicleState,
+                    System.currentTimeMillis(),
+                    canFeed.battery.remainingPercent))
+                sendChargingData(chargingData)
+            }
+            lastKnownSoc = currentSoc
+
+            logHelper.log(
+                tag = tag,
+                type = LogType.DEBUG,
+                message = "canFeed - $canFeed"
+            )
+
             updateModeStats(canFeed.evMode, canFeed.odometer.currentRideInKm)
             when (vehicleState) {
                 VehicleState.RUNNING -> handleRunningState(canFeed)
                 VehicleState.IDLE -> handleIdleState(canFeed)
                 VehicleState.STOP -> handleStopState(canFeed)
+                VehicleState.CHARGING -> handleChargingState(canFeed)
                 else -> {
                     // No action for other states
                 }
@@ -350,6 +391,23 @@ class TripProcessingService : Service() {
         } catch (e: Exception) {
             handleTripException(canFeed, e)
         }
+    }
+
+    private fun handleChargingState(canFeed: CanFeed) {
+        externalScope.launch {
+            if (isChargingValid.compareAndSet(false, true)) {
+                entryStartChargeSession(canFeed)
+                val chargingData = json.encodeToString(
+                    ChargingData(
+                    VehicleState.CHARGING,
+                    System.currentTimeMillis(),
+                    canFeed.battery.remainingPercent
+                ))
+                sendChargingData(chargingData)
+            }
+        }
+        handleMaxBatteryCurrent(canFeed)
+        handleMaxBatteryVoltage(canFeed)
     }
 
     private suspend fun handleRunningState(canFeed: CanFeed) {
@@ -364,9 +422,9 @@ class TripProcessingService : Service() {
         if (detectHarshAccelerationAlert(canFeed.transmission.speed)) {
             harshAccelerationAlertCount += 1
         }
-        handleMaxSpeed(canFeed)
+        handleMaxSpeed(canFeed.transmission.speed)
         updateRunningAverage(canFeed.transmission.speed)
-        if (canFeed.odometer.currentRideInKm > 0.500) {
+        if (canFeed.odometer.currentRideInKm > TRIP_MIN_DISTANCE) {
             _tripStatus.value = TripStatus.IN_PROGRESS
             if (!isTripValid) {
                 insertTripToDatabase(canFeed)
@@ -376,19 +434,35 @@ class TripProcessingService : Service() {
     }
 
     private fun handleIdleState(canFeed: CanFeed) {
-        if (canFeed.odometer.currentRideInKm > 0) {
-            if (!isIdleValid) {
-                startingIdleTime = System.currentTimeMillis()
-                isIdleValid = !isIdleValid
-            }
 
-            val currentTime = System.currentTimeMillis()
-            val currentIdleTime = currentTime - startingIdleTime
-            if (!idleAlertCheckFlag) {
-                if (currentIdleTime > IDLE_THRESHOLD) {
-                    idleAlertCount += 1
-                    idleAlertCheckFlag = true
-                }
+        if (!isTripStarted) {
+            initializeTrip(canFeed)
+        }
+
+        if (!isIdleValid) {
+            startingIdleTime = System.currentTimeMillis()
+            isIdleValid = !isIdleValid
+        }
+
+        if (isChargingValid.get()) {
+            isChargingValid.set(false)
+            handleChargingDuration(canFeed)
+            val chargingData = json.encodeToString(
+                ChargingData(
+                VehicleState.IDLE,
+                System.currentTimeMillis(),
+                canFeed.battery.remainingPercent
+            )
+            )
+            sendChargingData(chargingData)
+        }
+
+        val currentTime = System.currentTimeMillis()
+        val currentIdleTime = currentTime - startingIdleTime
+        if (!idleAlertCheckFlag) {
+            if (currentIdleTime > IDLE_THRESHOLD) {
+                idleAlertCount += 1
+                idleAlertCheckFlag = true
             }
         }
     }
@@ -412,7 +486,10 @@ class TripProcessingService : Service() {
                 tripStatus = TripStatus.FAILED
             )
             val updateStatus = updated?.let { tripDao?.updateTrip(it) }
-            logHelper.log(type = LogType.ERROR, message = "Exception occurred when handling trip - ${exception.asLog()}")
+            logHelper.log(
+                type = LogType.ERROR,
+                message = "Exception occurred when handling trip - ${exception.asLog()} updateStatus - $updateStatus"
+            )
         }
     }
 
@@ -423,9 +500,9 @@ class TripProcessingService : Service() {
         isTripStarted = true
     }
 
-    private fun handleMaxSpeed(canFeed: CanFeed) {
-        if (canFeed.transmission.speed > maxCanSpeed) {
-            maxCanSpeed = canFeed.transmission.speed
+    private fun handleMaxSpeed(speed: Int) {
+        if (speed > maxCanSpeed) {
+            maxCanSpeed = speed
         }
     }
 
@@ -448,27 +525,21 @@ class TripProcessingService : Service() {
         isIdleValid = !isIdleValid
     }
 
-    private fun detectSpeedAlert(currentSpeed: Int) {
 
-        val currentTime = System.currentTimeMillis()
+    private fun handleChargingDuration(canFeed: CanFeed) {
+        entryEndChargingSession(canFeed = canFeed)
+    }
+
+    private fun detectSpeedAlert(currentSpeed: Int) {
 
         if (currentSpeed > SPEED_LIMIT) {
             if (!isSpeedOverLimit) {
                 isSpeedOverLimit = true
-                lastOverSpeedTime = currentTime
-                lastAlertTime = currentTime
                 speedAlertCount++
-            } else {
-                val elapsed = currentTime - lastAlertTime
-                if (elapsed >= SPEED_LIMIT_ALERT_THRESHOLD) {
-                    lastAlertTime = currentTime
-                    speedAlertCount++
-                }
             }
         } else {
             isSpeedOverLimit = false
             lastOverSpeedTime = 0L
-            lastAlertTime = 0L
         }
 
     }
@@ -520,6 +591,27 @@ class TripProcessingService : Service() {
 
     }
 
+    private fun getAverageCurrent(): Double {
+        return if (sampleCurrentCount > 0) (totalCurrent / sampleCurrentCount).toDouble() else 0.0
+    }
+
+    private fun getAverageVoltage(): Double {
+        return if (sampleVoltageCount > 0) (totalVoltage / sampleVoltageCount).toDouble() else 0.0
+    }
+
+
+    private fun handleMaxBatteryCurrent(canFeed: CanFeed) {
+        if (abs(canFeed.battery.current) > maxBatteryCurrent) {
+            maxBatteryCurrent = abs(canFeed.battery.current)
+        }
+    }
+
+    private fun handleMaxBatteryVoltage(canFeed: CanFeed) {
+        if (canFeed.battery.volt > maxBatteryVoltage) {
+            maxBatteryVoltage = canFeed.battery.volt
+        }
+    }
+
 
     private suspend fun insertTripToDatabase(canFeed: CanFeed) {
         externalScope.launch(Dispatchers.IO) {
@@ -533,7 +625,6 @@ class TripProcessingService : Service() {
                     startTripLocationLon = canFeed.currentLocation?.longitude ?: 0.0
                 )
             )?.toInt() ?: 0
-
             isTripValid = true
         }.join()
     }
@@ -566,13 +657,57 @@ class TripProcessingService : Service() {
                 averageSpeedKmph = averageSpeed.toFloat(),
                 speedAlertsCount = speedAlertCount,
                 harshAlertsCount = harshAlertsCount,
-                modeDuration = modeStatsJson,
+                modeStats = modeStatsJson,
                 endTripLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
                 endTripLocationLon = canFeed.currentLocation?.longitude ?: 0.0
             )
             updated?.let { tripDao?.updateTrip(it) }
             startTripSync()
             resetTripState()
+        }
+    }
+
+    private fun entryStartChargeSession(canFeed: CanFeed) {
+        externalScope.launch(Dispatchers.IO) {
+            val startChargingTimeMs = System.currentTimeMillis()
+            val startSOC = canFeed.battery.remainingPercent
+
+            chargingSessionId = chargingDao?.insertChargingSession(
+                ChargingSessionEntity(
+                    startSOC = startSOC,
+                    batteryCurrent = canFeed.battery.current,
+                    chargingStartTimeDurationMs = startChargingTimeMs,
+                    startChargingLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
+                    startChargingLocationLon = canFeed.currentLocation?.longitude ?: 0.0,
+                )
+            )?.toInt() ?: 0
+        }
+    }
+
+    private fun entryEndChargingSession(canFeed: CanFeed) {
+        endingChargingTimeMillis = System.currentTimeMillis()
+        chargingEndSoc = canFeed.battery.remainingPercent
+        val chargeRate = (canFeed.battery.volt * canFeed.battery.current) / 1000
+        averageVoltage = getAverageVoltage()
+        averageCurrent = getAverageCurrent()
+        externalScope.launch(Dispatchers.IO) {
+            val existing = chargingDao?.getChargingSessionBySessionId(chargingSessionId)
+            val updated = existing?.copy(
+                //batteryCurrent = canFeed.battery.current,
+                batteryVoltage = canFeed.battery.volt,
+                endSOC = chargingEndSoc,
+                chargeRate = chargeRate,
+                maxBatteryCurrent = maxBatteryCurrent,
+                averageCurrent = getAverageCurrent(),
+                maxBatteryVoltage = maxBatteryVoltage,
+                averageVoltage = averageVoltage,
+                chargingEndTimeDurationMs = endingChargingTimeMillis,
+                endChargingLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
+                endChargingLocationLon = canFeed.currentLocation?.longitude ?: 0.0,
+            )
+            updated?.let { chargingDao?.updateChargingSession(it) }
+            startUnSyncedChargingSessionsUpload()
+            resetChargingState()
         }
     }
 
@@ -600,8 +735,6 @@ class TripProcessingService : Service() {
         //Reset SpeedAlert
         speedAlertCount = 0
         isSpeedOverLimit = false
-        lastOverSpeedTime = 0L
-        lastAlertTime = 0L
 
         idleAlertCount = 0
         idleAlertCheckFlag = false
@@ -616,6 +749,20 @@ class TripProcessingService : Service() {
         isTripStarted = false
         isTripValid = false
         isIdleValid = false
+
+    }
+
+    private fun resetChargingState() {
+        chargingEndSoc = 0
+        endingChargingTimeMillis = 0L
+        totalVoltage = 0
+        sampleVoltageCount = 0
+        averageVoltage = 0.0
+        totalCurrent = 0
+        sampleCurrentCount = 0
+        averageCurrent = 0.0
+        maxBatteryCurrent = 0.0
+        maxBatteryVoltage = 0.0
     }
 
     private fun clearModeDuration() {
@@ -629,6 +776,7 @@ class TripProcessingService : Service() {
         super.onCreate()
 
         tripDao = TripReportDatabase.getInstance(applicationContext).tripReportDao()
+        chargingDao = ChargingReportDatabase.getInstance(applicationContext).chargingReportDao()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         createNLSenderNotificationChannel()
         bindToSerialService()
@@ -708,11 +856,29 @@ class TripProcessingService : Service() {
                 unSyncedTripsEntities?.let {
                     val unSyncedTrips = convertToTripReports(it)
                     unSyncedTrips.forEach { trip ->
-                        sendDataToPortal(trip, imeiNumber)
+                        sendDataToPortal(
+                            createTripFeed(trip, imeiNumber),
+                            Constants.TOPIC_TRIP_REPORT
+                        ) { isSuccess, messageSize, feedData ->
+                            val status = if (isSuccess) "Published" else "Failed to publish"
+                            if (isSuccess) {
+                                tripDao?.markTripAsSynced(tripId)
+                            }
+                            showNotification("$status message with $messageSize Bytes")
+                            logHelper.log(
+                                tag = "Send Trip Data to portal",
+                                message = "sendDataToPortal - $status \n $feedData"
+                            )
+                        }
                     }
                 }
             } ?: run {
-                logcat { "Failed to send data to portal, IMEI is null" }
+                logcat { "" }
+                logHelper.log(
+                    type = LogType.ERROR,
+                    tag = tag,
+                    message = "Failed to send trip data to portal, IMEI is null"
+                )
             }
         }
     }
@@ -721,11 +887,47 @@ class TripProcessingService : Service() {
         tripSyncJob?.cancel()
     }
 
-    private fun sendDataToPortal(trip: TripReport, imei: String) {
-        val feedData = createFeed(trip, imei)
+    private fun startUnSyncedChargingSessionsUpload() {
+        chargingSyncJob = externalScope.launch {
+            imei?.let { imeiNumber ->
+                val unSyncedChargingSessionsEntities = chargingDao?.getUnSyncedChargingSessions()
+                unSyncedChargingSessionsEntities?.let {
+                    val unSyncedChargingSessions = convertToChargingTelemetryData(it)
+                    unSyncedChargingSessions.forEach { chargingSession ->
+                        sendDataToPortal(
+                            createChargingSessionsFeed(chargingSession, imeiNumber),
+                            Constants.TOPIC_CHARGING_REPORT
+                        ) { isSuccess, messageSize, feedData ->
+                            val status = if (isSuccess) "Published" else "Failed to publish"
+                            if (isSuccess) {
+                                chargingDao?.markChargingSessionAsSynced(chargingSessionId)
+                            }
+                            showNotification("$status message with $messageSize Bytes")
+                            logHelper.log(
+                                tag = "Send Charging Data to portal",
+                                message = "sendDataToPortal - $status \n $feedData"
+                            )
+                        }
+                    }
+                }
+            } ?: run {
+                logcat { "Failed to send trip data to portal, IMEI is null" }
+            }
+        }
+    }
+
+    private fun cancelChargingSessionUploads() {
+        tripSyncJob?.cancel()
+    }
+
+    private fun sendDataToPortal(
+        feedData: String,
+        topic: String,
+        onComplete: (isSuccess: Boolean, messageSize: Int, feedData: String) -> Unit = { b: Boolean, i: Int, s: String -> }
+    ) {
         val mqttPacket = """
         {
-            "type":"${Constants.TOPIC_TRIP_REPORT}",
+            "type":"$topic",
             "data":${feedData}
         }
         """.trimIndent()
@@ -733,27 +935,35 @@ class TripProcessingService : Service() {
 
         val messageSize = mqttPacket.toByteArray().size
         showNotification("Publishing message of $messageSize Bytes") //Show only important data like seq no.
-        portalMQTTClient.publish(Constants.TOPIC_TRIP_REPORT, mqttPacket) { isSuccess ->
-            val status = if (isSuccess) "Published" else "Failed to publish"
-            if (isSuccess) {
-                tripDao?.markTripAsSynced(trip.tripId)
-            }
-            showNotification("$status message with $messageSize Bytes")
-            logHelper.log(
-                tag = "Send Data to portal",
-                message = "sendDataToPortal - $status \n $feedData"
-            )
+        portalMQTTClient.publish(topic, mqttPacket) { isSuccess ->
+            onComplete(isSuccess, messageSize, feedData)
         }
     }
 
-    private fun createFeed(trip: TripReport, imei: String): String {
+    private fun sendChargingData(chargingSession: String) {
+        val broadcastIntent = Intent().apply {
+            action = CHARGING_DATA_ACTION_NAME
+            putExtra(CHARGE_DATA, chargingSession)
+            putExtra(TIME_STAMP, System.currentTimeMillis())
+            setPackage(DISPLAY_PACKAGE_NAME)
+        }
+        sendBroadcast(broadcastIntent)
+    }
+
+
+    private fun createTripFeed(trip: TripTelemetryData, imei: String): String {
         val payload = TripReportPayload(imei = imei, trip = trip)
         val tripReportFeed = Json.encodeToString(payload)
         return tripReportFeed
     }
 
+    private fun createChargingSessionsFeed(chargingSession: ChargeTelemetryData, imei: String): String {
+        val payload = ChargingSessionPayload(imei = imei, chargingSession = chargingSession)
+        val chargingSessionFeed = Json.encodeToString(payload)
+        return chargingSessionFeed
+    }
+
     override fun onDestroy() {
-        handler = null
         handler = null
         externalScope.cancel()
 
@@ -761,6 +971,7 @@ class TripProcessingService : Service() {
         serialListenerJob?.cancel()
         unbindService(serviceConnection)
         stopTripSync()
+        cancelChargingSessionUploads()
         super.onDestroy()
     }
 
@@ -784,5 +995,11 @@ class TripProcessingService : Service() {
         private const val SERIAL_SERVICE_INTENT =
             "com.nlevcluster.serialservice.BIND_UART_SERVICE"
         private const val SERIAL_SERVICE_PACKAGE_NAME = "com.nlevcluster.serialservice"
+
+        private const val DISPLAY_PACKAGE_NAME = "com.nlevcluster.display"
+        private const val CHARGING_DATA_ACTION_NAME = "com.nlevcluster.display.ACTION_SEND_CHARGE_DATA"
+        private const val CHARGE_DATA = "CHARGE_DATA"
+        private const val TIME_STAMP = "TIME_STAMP"
+        private const val TRIP_MIN_DISTANCE = 0.500
     }
 }

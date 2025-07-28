@@ -1,4 +1,4 @@
-package com.nlevcluster.sender.trip.contentprovider
+package com.nlevcluster.sender.report.content_provider
 
 import android.annotation.SuppressLint
 import android.content.ContentProvider
@@ -6,20 +6,22 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
-import android.os.Build
-import androidx.annotation.RequiresApi
 import com.nlevcluster.sender.di.ProviderEntryPoint
-import com.nlevcluster.sender.model.DayTripDetails
-import com.nlevcluster.sender.model.DayWiseTripReport
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.ModeStats
-import com.nlevcluster.sender.model.MonthlyTripReport
-import com.nlevcluster.sender.model.TripDetails
+import com.nlevcluster.sender.model.MonthlyChargingSummary
+import com.nlevcluster.sender.model.MonthlyDrivingSummary
+import com.nlevcluster.sender.model.TripRecord
+import com.nlevcluster.sender.model.TripReportByDay
+import com.nlevcluster.sender.model.TripsOnDay
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.nllogger.NLLoggerLogHelper
-import com.nlevcluster.sender.trip.db.TripReportDao
-import com.nlevcluster.sender.trip.db.TripReportEntity
+import com.nlevcluster.sender.report.charge.db.ChargingReportDao
+import com.nlevcluster.sender.report.charge.db.ChargingSessionEntity
+import com.nlevcluster.sender.report.trip.db.TripReportDao
+import com.nlevcluster.sender.report.trip.db.TripReportEntity
+import com.nlevcluster.sender.report.trip.mapper.toTripRecord
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -29,13 +31,13 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
-class TripReportContentProvider : ContentProvider() {
+class ReportContentProvider : ContentProvider() {
 
-    private val tag = "TripReportContentProvider"
+    private val tag = "ReportContentProvider"
 
     private lateinit var tripDao: TripReportDao
+    private lateinit var chargingReportDao: ChargingReportDao
     lateinit var logHelper: LogHelper
 
     private var modeStats: MutableMap<EvMode, ModeStats> = enumValues<EvMode>()
@@ -44,7 +46,6 @@ class TripReportContentProvider : ContentProvider() {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    @RequiresApi(Build.VERSION_CODES.R)
     override fun onCreate(): Boolean {
 
         val context = context?.applicationContext ?: return false
@@ -53,6 +54,7 @@ class TripReportContentProvider : ContentProvider() {
             ProviderEntryPoint::class.java
         )
         tripDao = entryPoint.tripDao()
+        chargingReportDao = entryPoint.chargingDao()
         logHelper = NLLoggerLogHelper(context)
 
         return true
@@ -71,16 +73,16 @@ class TripReportContentProvider : ContentProvider() {
         sortOrder: String?
     ): Cursor? {
         return when (uri.lastPathSegment) {
-            MONTHLY_REPORT -> {
+            MONTHLY_TRIP_REPORT -> {
 
                 val startDate = uri.getQueryParameter("startDate")
                 val endDate = uri.getQueryParameter("endDate")
-                val cursor = MatrixCursor(arrayOf(MONTHLY_REPORT))
+                val cursor = MatrixCursor(arrayOf(MONTHLY_TRIP_REPORT))
 
                 logHelper.log(
                     type = LogType.INFO,
                     tag = tag,
-                    message = "Query received for MONTHLY_REPORT with startDate: $startDate endDate: $endDate"
+                    message = "Query received for TRIP_MONTHLY_REPORT with startDate: $startDate endDate: $endDate"
                 )
 
                 try {
@@ -108,7 +110,7 @@ class TripReportContentProvider : ContentProvider() {
 
                     val tripList = tripDao.getTripsByEndTimeRange(startTimestamp, endTimestamp)
 
-                    val monthlyTripReport = generateMonthlyTripReport(tripList)
+                    val monthlyTripReport = generateMonthlyDrivingSummary(tripList)
                     val monthlyTripReportDetails = json.encodeToString(monthlyTripReport)
                     logHelper.log(
                         type = LogType.INFO,
@@ -136,11 +138,11 @@ class TripReportContentProvider : ContentProvider() {
                 cursor
             }
 
-            DAY_WISE_REPORT -> {
+            DAY_WISE_TRIP_REPORT -> {
 
                 val startDate = uri.getQueryParameter("startDate")
                 val endDate = uri.getQueryParameter("endDate")
-                val cursor = MatrixCursor(arrayOf(DAY_WISE_REPORT))
+                val cursor = MatrixCursor(arrayOf(DAY_WISE_TRIP_REPORT))
 
                 logHelper.log(
                     type = LogType.INFO,
@@ -202,6 +204,74 @@ class TripReportContentProvider : ContentProvider() {
                 cursor
             }
 
+            MONTHLY_CHARGING_REPORT -> {
+
+                val startDate = uri.getQueryParameter("startDate")
+                val endDate = uri.getQueryParameter("endDate")
+                val cursor = MatrixCursor(arrayOf(MONTHLY_CHARGING_REPORT))
+
+                logHelper.log(
+                    type = LogType.INFO,
+                    tag = tag,
+                    message = "Query received for CHARGING_MONTHLY_REPORT with startDate: $startDate endDate: $endDate"
+                )
+
+                try {
+
+                    val dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
+                    val zoneId = ZoneId.systemDefault()
+
+                    val startDateTime = LocalDateTime.parse(startDate, dateFormatter)
+                    val endDateTime = LocalDateTime.parse(endDate, dateFormatter)
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "StartDateTime: $startDateTime, EndDateTime: $endDateTime"
+                    )
+
+                    val startTimestamp = startDateTime.atZone(zoneId).toInstant().toEpochMilli()
+                    val endTimestamp = endDateTime.atZone(zoneId).toInstant().toEpochMilli()
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "StartTimestamp: $startTimestamp, EndTimestamp: $endTimestamp"
+                    )
+
+                    val chargingSessionList = chargingReportDao.getChargingSessionsByEndTimeRange(
+                        startTimestamp,
+                        endTimestamp
+                    )
+
+                    val monthlyChargingSummary = generateMonthlyChargingSummary(chargingSessionList)
+                    val monthlyChargingReportDetails = json.encodeToString(monthlyChargingSummary)
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "monthlyChargingReportDetails - $monthlyChargingReportDetails"
+                    )
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "Generated MonthlyChargingReport JSON"
+                    )
+
+                    cursor.addRow(arrayOf(monthlyChargingReportDetails))
+
+                } catch (e: Exception) {
+                    logHelper.log(
+                        type = LogType.ERROR,
+                        tag = tag,
+                        message =
+                        "Exception in MONTHLY_CHARGING_REPORT query: ${e.message}"
+                    )
+                    cursor.addRow(arrayOf(null))
+                }
+                cursor
+            }
+
             else -> {
                 logHelper.log(
                     type = LogType.ERROR,
@@ -219,13 +289,22 @@ class TripReportContentProvider : ContentProvider() {
 
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int {
         when (uri.lastPathSegment) {
-            CLEAR_ALL_TRIP -> {
+            CLEAR_ALL_TRIPS -> {
+                logHelper.log(type = LogType.INFO, tag = tag, message = "Deleting all trips")
                 tripDao.deleteAllTrips()
                 context?.contentResolver?.notifyChange(uri, null)
                 return 1
             }
 
+            CLEAR_ALL_CHARGING_SESSIONS -> {
+                logHelper.log(type = LogType.INFO, tag = tag, message = "Deleting all charging sessions")
+                chargingReportDao.deleteAllChargingSessions()
+                context?.contentResolver?.notifyChange(uri, null)
+                return 1
+            }
+
             else -> {
+                logHelper.log(type = LogType.INFO, tag = tag, message = "Unknown delete URI: $uri")
                 return 0
             }
         }
@@ -237,18 +316,19 @@ class TripReportContentProvider : ContentProvider() {
         selection: String?,
         selectionArgs: Array<out String>?
     ): Int {
+        logHelper.log(type = LogType.INFO, tag = tag, message = "Update called for URI: $uri")
         return 0
     }
 
     @SuppressLint("SimpleDateFormat", "DefaultLocale")
-    fun generateMonthlyTripReport(tripList: List<TripReportEntity>): MonthlyTripReport {
+    fun generateMonthlyDrivingSummary(tripList: List<TripReportEntity>): MonthlyDrivingSummary {
         if (tripList.isEmpty()) {
             logHelper.log(
                 type = LogType.INFO,
                 tag = tag,
                 message = "Trip list is empty, returning empty report"
             )
-            return MonthlyTripReport()
+            return MonthlyDrivingSummary()
         }
 
         logHelper.log(
@@ -286,7 +366,7 @@ class TripReportContentProvider : ContentProvider() {
 
         var date = ""
         val dateFormatter = SimpleDateFormat("yyyy-MM-dd")
-        val lastTrip = TripDetails()
+        var lastTrip = TripRecord()
 
         var monthStartOdometer = 0.0
         var monthEndOdometer = 0.0
@@ -295,31 +375,10 @@ class TripReportContentProvider : ContentProvider() {
 
         tripList.forEachIndexed { index, trip ->
             if (index == 0) {
-                lastTrip.apply {
-                    tripDuration =
-                        formatMillisToHHMMSS(trip.tripEndTimeDurationMs - trip.tripStartTimeDurationMs)
-                    tripDistance = (trip.endOdometer - trip.startOdometer)
-                    tripDate = convertMillisToDate(trip.tripEndTimeDurationMs)
-                    socConsumption = (trip.startSOC - trip.endSOC)
-                    tripStartSOC = trip.startSOC
-                    tripEndSOC = trip.endSOC
-                    batteryEfficiency = batteryEfficiencyKmPerUnit(
-                        (trip.startSOC - trip.endSOC),
-                        (trip.endOdometer - trip.startOdometer).toInt()
-                    )
-                    averageSpeedKmph = trip.averageSpeedKmph.toDouble()
-                    tripStartOdometer = trip.startOdometer
-                    tripEndOdometer = trip.endOdometer
-                    startLatitude = trip.startTripLocationLat
-                    startLongitude = trip.startTripLocationLon
-                    endLatitude = trip.endTripLocationLat
-                    endLongitude = trip.endTripLocationLon
-                    modeStat = trip.modeDuration
-                    tripStartTime = convertMillisToTime(trip.tripStartTimeDurationMs)
-                    tripEndTime = convertMillisToTime(trip.tripEndTimeDurationMs)
-                }
+                lastTrip = trip.toTripRecord()
                 monthEndOdometer = trip.endOdometer
             }
+
             if (index == tripList.lastIndex) {
                 monthStartOdometer = trip.startOdometer
             }
@@ -340,10 +399,10 @@ class TripReportContentProvider : ContentProvider() {
             minStartTime = minOf(minStartTime, trip.tripStartTimeDurationMs)
             maxEndTime = maxOf(maxEndTime, trip.tripEndTimeDurationMs)
 
-            if (trip.modeDuration.isNotEmpty()) {
+            if (trip.modeStats.isNotEmpty()) {
                 modeStats.clear()
                 modeStats =
-                    Json.decodeFromString<MutableMap<EvMode, ModeStats>>(trip.modeDuration)
+                    Json.decodeFromString<MutableMap<EvMode, ModeStats>>(trip.modeStats)
                 ecoDistance += modeStats[EvMode.ECO]?.distanceKm ?: 0.0
                 sportsDistance += modeStats[EvMode.SPORTS]?.distanceKm ?: 0.0
                 powerDistance += modeStats[EvMode.POWER]?.distanceKm ?: 0.0
@@ -359,7 +418,7 @@ class TripReportContentProvider : ContentProvider() {
 
         logHelper.log(type = LogType.INFO, tag = tag, message = "Completed trip data aggregation")
 
-        return MonthlyTripReport(
+        return MonthlyDrivingSummary(
             monthStartOdometer = monthStartOdometer,
             monthEndOdometer = monthEndOdometer,
             averageSpeedKmph = averageSpeed,
@@ -369,10 +428,10 @@ class TripReportContentProvider : ContentProvider() {
             idleAlertsCount = totalIdleAlerts,
             harshAlertsCount = totalHarshAlerts,
             regenCount = totalRegenCount,
-            tripDistanceKm = String.format("%.2f", totalDistance),
-            idleDuration = formatMillisToHHMMSS(totalIdleDuration),
-            movingDuration = formatMillisToHHMMSS(totalMovingDuration),
-            tripDuration = formatMillisToHHMMSS(totalTripDuration),
+            tripDistanceKm = totalDistance,
+            idleDuration = totalIdleDuration,
+            movingDuration = totalMovingDuration,
+            tripDuration = totalTripDuration,
             tripDays = tripDaysSet.size,
             ecoDistance = ecoDistance,
             sportsDistance = sportsDistance,
@@ -383,7 +442,7 @@ class TripReportContentProvider : ContentProvider() {
     }
 
     @SuppressLint("SimpleDateFormat", "DefaultLocale")
-    fun generateDayWiseTripReport(tripList: List<TripReportEntity>): DayWiseTripReport {
+    fun generateDayWiseTripReport(tripList: List<TripReportEntity>): TripReportByDay {
 
         if (tripList.isEmpty()) {
             logHelper.log(
@@ -391,7 +450,7 @@ class TripReportContentProvider : ContentProvider() {
                 tag = tag,
                 message = "Trip list is empty, returning empty report"
             )
-            return DayWiseTripReport()
+            return TripReportByDay()
         }
 
         logHelper.log(
@@ -400,52 +459,67 @@ class TripReportContentProvider : ContentProvider() {
             message = "Generating DayWiseTripReport from ${tripList.size} trips"
         )
 
-        val dateFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val dateFormatter = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault())
         val grouped: Map<String, List<TripReportEntity>> = tripList.groupBy { trip ->
             dateFormatter.format(Date(trip.tripEndTimeDurationMs))
         }
 
         val dayTripDetailsList = grouped.map { (date, trips) ->
-            val totalDistance = trips.sumOf { (it.endOdometer - it.startOdometer) }
-            val totalSOC = trips.sumOf { (it.endSOC - it.startSOC) }
-            val allAlerts = trips.map { it.maximumSpeedKmph.toInt() }
-
-            DayTripDetails(
-                tripDate = date,
-                tripDistance = "%.1f".format(totalDistance),
-                socConsumption = totalSOC,
-                speedAlerts = allAlerts
+            TripsOnDay(
+                tripCounts = trips.size,
+                date = date,
+                trips = trips.map {
+                    it.toTripRecord()
+                }
             )
         }
 
-        return DayWiseTripReport(
+        return TripReportByDay(
+            tripDays = grouped.size,
             days = dayTripDetailsList
         )
 
     }
 
-    @SuppressLint("SimpleDateFormat")
-    private fun convertMillisToDate(millis: Long): String {
-        val date = Date(millis)
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd")
-        val dateString = dateFormat.format(date)
-        return dateString
+    private fun generateMonthlyChargingSummary(chargingSessionList: List<ChargingSessionEntity>): MonthlyChargingSummary {
+        if (chargingSessionList.isEmpty()) {
+            logHelper.log(
+                type = LogType.INFO,
+                tag = tag,
+                message = "Charging Session list is empty, returning empty report"
+            )
+            return MonthlyChargingSummary()
+        }
+
+        logHelper.log(
+            type = LogType.INFO,
+            tag = tag,
+            message = "Generating MonthlyTripReport from ${chargingSessionList.size} chargingSessions"
+        )
+
+        var totalChargingHours = 0L
+        var totalEnergyDeliveredWh = 0.0
+
+        chargingSessionList.forEachIndexed { _, chargingSession ->
+            totalChargingHours += (chargingSession.chargingEndTimeDurationMs - chargingSession.chargingStartTimeDurationMs)
+            totalEnergyDeliveredWh += calculateEnergyConsumedInWh((chargingSession.endSOC - chargingSession.startSOC))
+        }
+
+        logHelper.log(type = LogType.INFO, tag = tag, message = "Completed trip data aggregation")
+
+        return MonthlyChargingSummary(
+            totalChargingHours = totalChargingHours,
+            totalChargingCount = chargingSessionList.size,
+            totalEnergyDeliveredWh = totalEnergyDeliveredWh,
+            totalEnergyDeliveredKWh = totalEnergyDeliveredWh / 1000.0,
+        )
     }
 
-    @SuppressLint("SimpleDateFormat")
-    private fun convertMillisToTime(millis: Long): String {
-        val date = Date(millis)
-        val timeFormat = SimpleDateFormat("HH:mm a")
-        val timeString = timeFormat.format(date)
-        return timeString
-    }
-
-    @SuppressLint("DefaultLocale")
-    private fun formatMillisToHHMMSS(millis: Long): String {
-        val hours = TimeUnit.MILLISECONDS.toHours(millis)
-        val minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60
-        //val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60
-        return String.format("%02d:%02d", hours, minutes/*, seconds*/)
+    private fun calculateEnergyConsumedInWh(
+        totalConsumedPercent: Int
+    ): Double {
+        if (totalConsumedPercent == 0) return 0.0
+        return (totalConsumedPercent / 100.0) * NOMINAL_ENERGY
     }
 
     private fun getUsageLevel(usageLimit: Int): Int {
@@ -457,22 +531,15 @@ class TripReportContentProvider : ContentProvider() {
         }
     }
 
-    private fun batteryEfficiencyKmPerUnit(
-        totalConsumedEnergy: Int,
-        totalTripDistanceKm: Int
-    ): Float {
-        if (totalConsumedEnergy == 0 || totalTripDistanceKm == 0) return 0f
-        val totalConsumedEnergyWh = (totalConsumedEnergy / 100.0) * NOMINAL_ENERGY
-        val totalConsumedEnergyKWh = totalConsumedEnergyWh / 1000.0
-        return (totalConsumedEnergyKWh / totalTripDistanceKm).toFloat()
-    }
-
     companion object {
 
         const val NOMINAL_ENERGY = 2960
-        const val MONTHLY_REPORT = "monthly_report"
-        const val DAY_WISE_REPORT = "day_wise_report"
-        const val CLEAR_ALL_TRIP = "clear_all_trip"
+        const val MONTHLY_TRIP_REPORT = "monthly_trip_report"
+        const val DAY_WISE_TRIP_REPORT = "day_wise_trip_report"
+        const val CLEAR_ALL_TRIPS = "clear_all_trips"
+        const val MONTHLY_CHARGING_REPORT = "monthly_charging_report"
+        const val DAY_WISE_CHARGING_REPORT = "day_wise_charging_report"
+        const val CLEAR_ALL_CHARGING_SESSIONS = "clear_all_charging_sessions"
 
     }
 

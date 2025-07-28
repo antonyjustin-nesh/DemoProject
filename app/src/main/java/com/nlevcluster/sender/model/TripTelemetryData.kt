@@ -1,11 +1,11 @@
 package com.nlevcluster.sender.model
 
-import com.nlevcluster.sender.trip.TripStatus
+import com.nlevcluster.sender.report.trip.TripStatus
 import kotlinx.serialization.Serializable
 
 
 @Serializable
-data class TripReport(
+data class TripTelemetryData(
     val tripId: Int = 0,
     val averageSpeedKmph: Float = 0f,
     val maximumSpeedKmph: Float = 0f,
@@ -15,7 +15,7 @@ data class TripReport(
     val speedAlertsCount: Int = 0,
     val idleAlertsCount: Int = 0,
     val harshAlertsCount: Int = 0,
-    val modeDuration: String = "",
+    val modeStats: String = "",
     val regenCount: Int = 0,
     val startOdometer: Double = 0.0,
     val endOdometer: Double = 0.0,
@@ -33,5 +33,5 @@ data class TripReport(
 @Serializable
 data class TripReportPayload(
     val imei: String,
-    val trip: TripReport
+    val trip: TripTelemetryData
 )

@@ -94,7 +94,7 @@ class DataSendService : Service() {
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var senderJob: Job? = null
 
-    private val _tripSERVICENAME: String = "com.nlevcluster.sender.trip.service.TripProcessingService"
+    private val reportProcessingService: String = "com.nlevcluster.sender.report.service.ReportProcessingService"
 
     private val notificationTitle = "NL-Sender - Data Sync"
     private val notificationChannel = "DATA_SYNC_SERVICE"
@@ -273,7 +273,7 @@ class DataSendService : Service() {
                         latitude = location.latitude,
                         longitude = location.longitude,
                         accuracy = location.accuracy.toDouble(),
-                        speed = location.speed * 3.6f,
+                        speed = location.speed,
                         altitude = location.altitude.toFloat()
                     )
                     canFeed
@@ -384,7 +384,7 @@ class DataSendService : Service() {
                 createNLSenderNotification("NL-Sender ", "Data sync service started")
             startForeground(NOTIFICATION_ID, initialNotification)
 
-            initTripService(applicationContext)
+            initReportProcessingService(applicationContext)
 
             val sharedPref = getSharedPreferences("properties", MODE_PRIVATE)
             imei = intent?.getStringExtra("IMEI") ?: sharedPref.getString("imei", null)
@@ -413,9 +413,9 @@ class DataSendService : Service() {
         return START_STICKY
     }
 
-    private fun initTripService(context: Context) {
+    private fun initReportProcessingService(context: Context) {
         val tripIntent = Intent()
-        tripIntent.setClassName("com.nlevcluster.sender", _tripSERVICENAME)
+        tripIntent.setClassName("com.nlevcluster.sender", reportProcessingService)
         tripIntent.putExtra("IMEI", imei)
         context.startForegroundService(tripIntent)
     }

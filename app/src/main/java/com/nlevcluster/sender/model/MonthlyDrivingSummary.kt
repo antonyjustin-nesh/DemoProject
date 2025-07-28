@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 
 
 @Serializable
-data class MonthlyTripReport(
+data class MonthlyDrivingSummary(
     val monthStartOdometer: Double = 0.0,
     val monthEndOdometer: Double = 0.0,
     val averageSpeedKmph: Float = 0f,
@@ -14,14 +14,14 @@ data class MonthlyTripReport(
     val idleAlertsCount: Int = 0,
     val harshAlertsCount: Int = 0,
     val regenCount: Int = 0,
-    val tripDistanceKm: String = "",
-    val idleDuration: String = "",
-    val movingDuration: String = "",
-    val tripDuration: String = "",
+    val tripDistanceKm: Double = 0.0,
+    val idleDuration: Long = 0L,
+    val movingDuration: Long = 0L,
+    val tripDuration: Long = 0L,
     val ecoDistance: Double = 0.0,
     val sportsDistance: Double = 0.0,
     val powerDistance: Double = 0.0,
     val tripDays: Int = 0,
     val vehicleUsage: Int = 0,
-    val lastTrip: TripDetails = TripDetails()
+    val lastTrip: TripRecord = TripRecord()
 )
