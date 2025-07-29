@@ -512,6 +512,7 @@ class ReportContentProvider : ContentProvider() {
             totalChargingCount = chargingSessionList.size,
             totalEnergyDeliveredWh = totalEnergyDeliveredWh,
             totalEnergyDeliveredKWh = totalEnergyDeliveredWh / 1000.0,
+            batteryTemperature = if(chargingSessionList.isNotEmpty()) chargingSessionList[0].batteryTemperature else 0f
         )
     }
 

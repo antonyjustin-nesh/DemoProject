@@ -10,4 +10,5 @@ data class Battery(
     val current: Double = 0.0,
     val fullCapacity: Double = 0.0,
     val soc: Double = 0.0,
+    val temperature: Double = 0.0,
 )

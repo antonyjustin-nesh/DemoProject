@@ -15,6 +15,7 @@ data class MonthlyChargingSummary(
     val maxBatteryVoltage: Double = 0.0,
     val minBatteryVoltage: Double = 0.0,
     val averageBatteryVoltage: Double = 0.0,
+    val batteryTemperature: Float = 0F,
     val maxBatteryTemperature: Float = 0F,
     val minBatteryTemperature: Float = 0F,
     val batteryTemperatureRise: Float = 0F,

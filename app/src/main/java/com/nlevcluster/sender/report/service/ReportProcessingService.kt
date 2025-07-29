@@ -418,6 +418,20 @@ class ReportProcessingService : Service() {
         if (isIdleValid) {
             handleIdleTime()
         }
+
+        if (isChargingValid.get()) {
+            isChargingValid.set(false)
+            handleChargingDuration(canFeed)
+            val chargingData = json.encodeToString(
+                ChargingData(
+                    VehicleState.RUNNING,
+                    System.currentTimeMillis(),
+                    canFeed.battery.remainingPercent
+                )
+            )
+            sendChargingData(chargingData)
+        }
+
         detectSpeedAlert(canFeed.transmission.speed)
         if (detectHarshAccelerationAlert(canFeed.transmission.speed)) {
             harshAccelerationAlertCount += 1
@@ -468,6 +482,20 @@ class ReportProcessingService : Service() {
     }
 
     private fun handleStopState(canFeed: CanFeed) {
+
+        if (isChargingValid.get()) {
+            isChargingValid.set(false)
+            handleChargingDuration(canFeed)
+            val chargingData = json.encodeToString(
+                ChargingData(
+                    VehicleState.STOP,
+                    System.currentTimeMillis(),
+                    canFeed.battery.remainingPercent
+                )
+            )
+            sendChargingData(chargingData)
+        }
+
         if (_tripStatus.value == TripStatus.IN_PROGRESS && isTripStarted && isTripValid) {
             completeTrip(canFeed)
         } else {
@@ -697,6 +725,7 @@ class ReportProcessingService : Service() {
                 batteryVoltage = canFeed.battery.volt,
                 endSOC = chargingEndSoc,
                 chargeRate = chargeRate,
+                batteryTemperature = canFeed.battery.temperature.toFloat(),
                 maxBatteryCurrent = maxBatteryCurrent,
                 averageCurrent = getAverageCurrent(),
                 maxBatteryVoltage = maxBatteryVoltage,

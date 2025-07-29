@@ -14,7 +14,7 @@ fun determineVehicleState(canFeed: CanFeed): VehicleState {
             if (canSpeed > 0) {
                 VehicleState.RUNNING
             } else if (canSpeed == 0) {
-                if (batteryCurrent < 0) {
+                if (batteryCurrent > 0) {
                     VehicleState.CHARGING
                 } else {
                     VehicleState.IDLE
