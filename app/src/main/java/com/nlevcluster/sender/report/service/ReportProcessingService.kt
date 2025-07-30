@@ -9,11 +9,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.database.ContentObserver
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.nlevcluster.aidl.IProcessedFeedCallback
 import com.nlevcluster.aidl.IUartService
@@ -809,6 +812,7 @@ class ReportProcessingService : Service() {
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         createNLSenderNotificationChannel()
         bindToSerialService()
+        observeClearVIPChanges()
 
     }
 
@@ -979,6 +983,16 @@ class ReportProcessingService : Service() {
         sendBroadcast(broadcastIntent)
     }
 
+    private fun observeClearVIPChanges() {
+        val clearVipUri = Uri.parse(CLEAR_VIP_URI)
+        val contentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                startOdometer = 0.0
+            }
+        }
+        contentResolver?.registerContentObserver(clearVipUri, true, contentObserver)
+    }
+
 
     private fun createTripFeed(trip: TripTelemetryData, imei: String): String {
         val payload = TripReportPayload(imei = imei, trip = trip)
@@ -1027,6 +1041,7 @@ class ReportProcessingService : Service() {
 
         private const val DISPLAY_PACKAGE_NAME = "com.nlevcluster.display"
         private const val CHARGING_DATA_ACTION_NAME = "com.nlevcluster.display.ACTION_SEND_CHARGE_DATA"
+        const val CLEAR_VIP_URI = "content://com.nlevcluster.nl_admin.vip_provider/clear_all_data"
         private const val CHARGE_DATA = "CHARGE_DATA"
         private const val TIME_STAMP = "TIME_STAMP"
         private const val TRIP_MIN_DISTANCE = 0.500
