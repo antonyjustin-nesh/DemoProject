@@ -17,6 +17,8 @@ import com.nlevcluster.sender.model.TripsOnDay
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.nllogger.NLLoggerLogHelper
+import com.nlevcluster.sender.report.alerts.AlertDao
+import com.nlevcluster.sender.report.alerts.convertToAlerts
 import com.nlevcluster.sender.report.charge.db.ChargingReportDao
 import com.nlevcluster.sender.report.charge.db.ChargingSessionEntity
 import com.nlevcluster.sender.report.trip.db.TripReportDao
@@ -38,6 +40,7 @@ class ReportContentProvider : ContentProvider() {
 
     private lateinit var tripDao: TripReportDao
     private lateinit var chargingReportDao: ChargingReportDao
+    private lateinit var alertDao: AlertDao
     lateinit var logHelper: LogHelper
 
     private var modeStats: MutableMap<EvMode, ModeStats> = enumValues<EvMode>()
@@ -55,6 +58,7 @@ class ReportContentProvider : ContentProvider() {
         )
         tripDao = entryPoint.tripDao()
         chargingReportDao = entryPoint.chargingDao()
+        alertDao = entryPoint.alertDao()
         logHelper = NLLoggerLogHelper(context)
 
         return true
@@ -266,6 +270,69 @@ class ReportContentProvider : ContentProvider() {
                         tag = tag,
                         message =
                         "Exception in MONTHLY_CHARGING_REPORT query: ${e.message}"
+                    )
+                    cursor.addRow(arrayOf(null))
+                }
+                cursor
+            }
+
+            FETCH_ALERTS_BY_DATE -> {
+                val startDate = uri.getQueryParameter("startDate")
+                val endDate = uri.getQueryParameter("endDate")
+                val cursor = MatrixCursor(arrayOf(FETCH_ALERTS_BY_DATE))
+
+                logHelper.log(
+                    type = LogType.INFO,
+                    tag = tag,
+                    message = "Query received for FETCH_ALERTS_BY_DATE with startDate: $startDate endDate: $endDate"
+                )
+
+                try {
+
+                    val dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
+                    val zoneId = ZoneId.systemDefault()
+
+                    val startDateTime = LocalDateTime.parse(startDate, dateFormatter)
+                    val endDateTime = LocalDateTime.parse(endDate, dateFormatter)
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "StartDateTime: $startDateTime, EndDateTime: $endDateTime"
+                    )
+
+                    val startTimestamp = startDateTime.atZone(zoneId).toInstant().toEpochMilli()
+                    val endTimestamp = endDateTime.atZone(zoneId).toInstant().toEpochMilli()
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "StartTimestamp: $startTimestamp, EndTimestamp: $endTimestamp"
+                    )
+
+                    val alertList = alertDao.getAlertsByTimeRange(startTimestamp, endTimestamp)
+                    val montlyAlerts = json.encodeToString(convertToAlerts(alertList))
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "montlyAlerts - $montlyAlerts"
+                    )
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "Generated montlyAlerts JSON"
+                    )
+
+                    cursor.addRow(arrayOf(montlyAlerts))
+
+                } catch (e: Exception) {
+                    logHelper.log(
+                        type = LogType.ERROR,
+                        tag = tag,
+                        message =
+                        "Exception in FETCH_ALERTS_BY_DATE query: ${e.message}"
                     )
                     cursor.addRow(arrayOf(null))
                 }
@@ -541,6 +608,7 @@ class ReportContentProvider : ContentProvider() {
         const val MONTHLY_CHARGING_REPORT = "monthly_charging_report"
         const val DAY_WISE_CHARGING_REPORT = "day_wise_charging_report"
         const val CLEAR_ALL_CHARGING_SESSIONS = "clear_all_charging_sessions"
+        const val FETCH_ALERTS_BY_DATE = "fetch_alerts_by_date"
 
     }
 

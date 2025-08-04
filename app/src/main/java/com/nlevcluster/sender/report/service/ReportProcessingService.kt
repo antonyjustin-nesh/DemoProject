@@ -34,6 +34,9 @@ import com.nlevcluster.sender.model.TripTelemetryData
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.report.VehicleState
+import com.nlevcluster.sender.report.alerts.AlertDao
+import com.nlevcluster.sender.report.alerts.AlertEntity
+import com.nlevcluster.sender.report.alerts.AlertType
 import com.nlevcluster.sender.report.charge.db.ChargingReportDao
 import com.nlevcluster.sender.report.charge.db.ChargingReportDatabase
 import com.nlevcluster.sender.report.charge.db.ChargingSessionEntity
@@ -77,6 +80,7 @@ import logcat.asLog
 import logcat.logcat
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import kotlin.math.abs
@@ -138,7 +142,7 @@ class ReportProcessingService : Service() {
     private var lastOverSpeedTime = 0L
     private var speedAlertCount = 0
 
-    private val IDLE_THRESHOLD = 10_000
+    private val IDLE_THRESHOLD = 60_000 * 5
     private var idleAlertCount = 0
     private var idleAlertCheckFlag = false
 
@@ -173,6 +177,7 @@ class ReportProcessingService : Service() {
 
     private var tripDao: TripReportDao? = null
     private var chargingDao: ChargingReportDao? = null
+    private var alertsDao: AlertDao? = null
     private var imei: String? = null
     private var tripSyncJob: Job? = null
     private var chargingSyncJob: Job? = null
@@ -375,6 +380,10 @@ class ReportProcessingService : Service() {
             }
             lastKnownSoc = currentSoc
 
+            //Alert Detection
+            detectSpeedAlert(canFeed.transmission.speed)
+            detectHarshAccelerationAlert(canFeed.transmission.speed)
+
             logHelper.log(
                 tag = tag,
                 type = LogType.DEBUG,
@@ -434,11 +443,6 @@ class ReportProcessingService : Service() {
             )
             sendChargingData(chargingData)
         }
-
-        detectSpeedAlert(canFeed.transmission.speed)
-        if (detectHarshAccelerationAlert(canFeed.transmission.speed)) {
-            harshAccelerationAlertCount += 1
-        }
         handleMaxSpeed(canFeed.transmission.speed)
         updateRunningAverage(canFeed.transmission.speed)
         if (canFeed.odometer.currentRideInKm > TRIP_MIN_DISTANCE) {
@@ -479,6 +483,15 @@ class ReportProcessingService : Service() {
         if (!idleAlertCheckFlag) {
             if (currentIdleTime > IDLE_THRESHOLD) {
                 idleAlertCount += 1
+                externalScope.launch(Dispatchers.IO) {
+                    alertsDao?.insertAlert(
+                        AlertEntity(
+                            timestamp = currentTime,
+                            description = "Idle Alert Detected Idle Duration - ${formatMillisToHHMMSS(currentIdleTime)}",
+                            type = AlertType.IDLE
+                        )
+                    )
+                }
                 idleAlertCheckFlag = true
             }
         }
@@ -567,6 +580,16 @@ class ReportProcessingService : Service() {
             if (!isSpeedOverLimit) {
                 isSpeedOverLimit = true
                 speedAlertCount++
+                externalScope.launch(Dispatchers.IO) {
+                    val currentTime = System.currentTimeMillis()
+                    alertsDao?.insertAlert(
+                        AlertEntity(
+                            timestamp = currentTime,
+                            description = "Speed Alert Detected at - $currentSpeed",
+                            type = AlertType.SPEED
+                        )
+                    )
+                }
             }
         } else {
             isSpeedOverLimit = false
@@ -575,18 +598,26 @@ class ReportProcessingService : Service() {
 
     }
 
-    private fun detectHarshAccelerationAlert(currentSpeed: Int): Boolean {
+    private fun detectHarshAccelerationAlert(currentSpeed: Int) {
 
         val now = System.currentTimeMillis()
         val deltaTime = now - lastTimestampHarshAcceleration
         val deltaSpeed = currentSpeed - harshAccelerationPreviousSpeed
         harshAccelerationPreviousSpeed = currentSpeed
 
-        return if (deltaSpeed >= speedDeltaThreshold && deltaTime >= speedDeltaDurationThreshold) {
+        if (deltaSpeed >= speedDeltaThreshold && deltaTime >= speedDeltaDurationThreshold) {
             lastTimestampHarshAcceleration = now
-            true
+            externalScope.launch(Dispatchers.IO) {
+                val currentTime = System.currentTimeMillis()
+                alertsDao?.insertAlert(
+                    AlertEntity(
+                        timestamp = currentTime,
+                        description = "Harsh Alert Detected at speed - $currentSpeed DeltaTime - ${formatMillisToHHMMSS(deltaTime)} DeltaSpeed - $deltaSpeed",
+                        type = AlertType.HARSH_ACCELERATION
+                    )
+                )
+            }
         } else {
-            false
         }
 
     }
@@ -809,6 +840,7 @@ class ReportProcessingService : Service() {
 
         tripDao = TripReportDatabase.getInstance(applicationContext).tripReportDao()
         chargingDao = ChargingReportDatabase.getInstance(applicationContext).chargingReportDao()
+        alertsDao = TripReportDatabase.getInstance(applicationContext).alertDao()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         createNLSenderNotificationChannel()
         bindToSerialService()
@@ -993,6 +1025,12 @@ class ReportProcessingService : Service() {
         contentResolver?.registerContentObserver(clearVipUri, true, contentObserver)
     }
 
+    private fun formatMillisToHHMMSS(millis: Long): String {
+        val hours = TimeUnit.MILLISECONDS.toHours(millis)
+        val minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60
+        val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60
+        return String.format("%02d:%02d:%02d", hours, minutes, seconds)
+    }
 
     private fun createTripFeed(trip: TripTelemetryData, imei: String): String {
         val payload = TripReportPayload(imei = imei, trip = trip)

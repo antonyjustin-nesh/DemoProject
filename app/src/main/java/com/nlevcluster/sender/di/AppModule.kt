@@ -3,6 +3,7 @@ package com.nlevcluster.sender.di
 import android.content.Context
 import com.google.gson.Gson
 import com.hivemq.client.internal.shaded.javax.inject.Singleton
+import com.nlevcluster.sender.report.alerts.AlertDao
 import com.nlevcluster.sender.report.charge.db.ChargingReportDao
 import com.nlevcluster.sender.report.charge.db.ChargingReportDatabase
 import com.nlevcluster.sender.report.trip.db.TripReportDao
@@ -32,4 +33,11 @@ object AppModule {
     fun provideChargingDao(@ApplicationContext context: Context): ChargingReportDao {
         return ChargingReportDatabase.getInstance(context).chargingReportDao()
     }
+
+    @Provides
+    @Singleton
+    fun provideAlertDao(@ApplicationContext context: Context): AlertDao {
+        return TripReportDatabase.getInstance(context).alertDao()
+    }
+
 }
