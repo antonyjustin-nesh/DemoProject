@@ -308,16 +308,6 @@ class ReportProcessingService : Service() {
     private fun startObservingUARTData() {
         serialListenerJob = externalScope.launch(Dispatchers.IO) {
 
-//            val batteryCurrentFlow = flow {
-//                var currentValue = -60.0
-//                while (true) {
-//                    emit(currentValue)
-//                    delay(15_000)
-//                    currentValue = if (currentValue == -60.0) 50.0 else -60.0
-//                }
-//            }
-
-
             serialServiceDataFlow
                 .catch {
                     logHelper.log(
@@ -337,15 +327,7 @@ class ReportProcessingService : Service() {
                     )
                     canFeed
                 }
-//                    .combine(batteryCurrentFlow) { canFeed, batteryCurrent ->
-//                    canFeed.battery = Battery(
-//                        current = batteryCurrent,
-//                        remainingPercent = canFeed.battery.remainingPercent,
-//                        soc = canFeed.battery.soc
-//                    )
-//                    canFeed
-//                    }
-                        .flatMapLatest { canData ->
+                .flatMapLatest { canData ->
                     val vehicleState = flowOf(determineVehicleState(canData))
                     combine(
                         vehicleState,
@@ -368,9 +350,11 @@ class ReportProcessingService : Service() {
             if (lastKnownSoc != null && lastKnownSoc != currentSoc) {
                 val chargingData = json.encodeToString(
                     ChargingData(
-                    vehicleState,
-                    System.currentTimeMillis(),
-                    canFeed.battery.remainingPercent))
+                        vehicleState,
+                        System.currentTimeMillis(),
+                        canFeed.battery.remainingPercent
+                    )
+                )
                 sendChargingData(chargingData)
             }
             lastKnownSoc = currentSoc
@@ -402,10 +386,11 @@ class ReportProcessingService : Service() {
                 entryStartChargeSession(canFeed)
                 val chargingData = json.encodeToString(
                     ChargingData(
-                    VehicleState.CHARGING,
-                    System.currentTimeMillis(),
-                    canFeed.battery.remainingPercent
-                ))
+                        VehicleState.CHARGING,
+                        System.currentTimeMillis(),
+                        canFeed.battery.remainingPercent
+                    )
+                )
                 sendChargingData(chargingData)
             }
         }
@@ -466,10 +451,10 @@ class ReportProcessingService : Service() {
             handleChargingDuration(canFeed)
             val chargingData = json.encodeToString(
                 ChargingData(
-                VehicleState.IDLE,
-                System.currentTimeMillis(),
-                canFeed.battery.remainingPercent
-            )
+                    VehicleState.IDLE,
+                    System.currentTimeMillis(),
+                    canFeed.battery.remainingPercent
+                )
             )
             sendChargingData(chargingData)
         }
@@ -1000,7 +985,10 @@ class ReportProcessingService : Service() {
         return tripReportFeed
     }
 
-    private fun createChargingSessionsFeed(chargingSession: ChargeTelemetryData, imei: String): String {
+    private fun createChargingSessionsFeed(
+        chargingSession: ChargeTelemetryData,
+        imei: String
+    ): String {
         val payload = ChargingSessionPayload(imei = imei, chargingSession = chargingSession)
         val chargingSessionFeed = Json.encodeToString(payload)
         return chargingSessionFeed
@@ -1040,7 +1028,8 @@ class ReportProcessingService : Service() {
         private const val SERIAL_SERVICE_PACKAGE_NAME = "com.nlevcluster.serialservice"
 
         private const val DISPLAY_PACKAGE_NAME = "com.nlevcluster.display"
-        private const val CHARGING_DATA_ACTION_NAME = "com.nlevcluster.display.ACTION_SEND_CHARGE_DATA"
+        private const val CHARGING_DATA_ACTION_NAME =
+            "com.nlevcluster.display.ACTION_SEND_CHARGE_DATA"
         const val CLEAR_VIP_URI = "content://com.nlevcluster.nl_admin.vip_provider/clear_all_data"
         private const val CHARGE_DATA = "CHARGE_DATA"
         private const val TIME_STAMP = "TIME_STAMP"
