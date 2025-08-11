@@ -62,18 +62,19 @@ abstract class TripReportDatabase : RoomDatabase() {
                     "Trips"
                 ).addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
-                        Log.d("RoomMigration", "DB opened at version ${db.version}")
+                        Log.d("RoomMigration", "Trip DB opened at version ${db.version}")
+                        // Maximum durability settings
+                        db.execSQL("PRAGMA synchronous = FULL") //TODO - To be removed with power management feature in AOSP
                     }
 
                     override fun onCreate(db: SupportSQLiteDatabase) {
-                        Log.d("RoomMigration", "DB created at version ${db.version}")
+                        Log.d("RoomMigration", "Trip DB created at version ${db.version}")
                     }
 
                     override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
                         Log.d("RoomMigration", "onDestructiveMigration ${db}")
                     }
-                })
-                    .build()
+                }).build()
                 INSTANCE = instance
                 instance
             }
