@@ -22,14 +22,13 @@ import com.nlevcluster.aidl.IProcessedFeedCallback
 import com.nlevcluster.aidl.IUartService
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
-import com.nlevcluster.sender.model.Battery
 import com.nlevcluster.sender.model.CanFeed
 import com.nlevcluster.sender.model.ChargeTelemetryData
 import com.nlevcluster.sender.model.ChargingSessionPayload
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.LocationInfo
 import com.nlevcluster.sender.model.ModeStats
-import com.nlevcluster.sender.model.TripReportPayload
+import com.nlevcluster.sender.model.TripRecordsPayload
 import com.nlevcluster.sender.model.TripTelemetryData
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
@@ -66,7 +65,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -980,7 +978,7 @@ class ReportProcessingService : Service() {
 
 
     private fun createTripFeed(trip: TripTelemetryData, imei: String): String {
-        val payload = TripReportPayload(imei = imei, trip = trip)
+        val payload = TripRecordsPayload(imei = imei, listOf(trip))
         val tripReportFeed = Json.encodeToString(payload)
         return tripReportFeed
     }

@@ -140,20 +140,24 @@ class MQTTUtil @Inject constructor(
 
         //checkConnection()
 
-        client?.publishWith()
-            ?.topic(topic)
-            ?.payload(message.toByteArray())
-            ?.messageExpiryInterval(KEEP_ALIVE)
-            ?.qos(qos)
-            ?.send()
-            ?.whenComplete { ack, throwable ->
-                if (throwable != null) {
-                    logcat(TAG) { "Publish failed: ${throwable.message}" }
-                    onComplete(false)
-                } else {
-                    logcat(TAG) { "Publish successful: ${ack}" }
-                    onComplete(true)
+        if(isConnected()) {
+            client?.publishWith()
+                ?.topic(topic)
+                ?.payload(message.toByteArray())
+                ?.messageExpiryInterval(KEEP_ALIVE)
+                ?.qos(qos)
+                ?.send()
+                ?.whenComplete { ack, throwable ->
+                    if (throwable != null) {
+                        logcat(TAG) { "Publish failed: ${throwable.message}" }
+                        onComplete(false)
+                    } else {
+                        logcat(TAG) { "Publish successful: ${ack}" }
+                        onComplete(true)
+                    }
                 }
-            }
+        } else {
+            onComplete(false)
+        }
     }
 }

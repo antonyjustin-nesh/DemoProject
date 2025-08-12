@@ -31,7 +31,7 @@ data class TripTelemetryData(
 )
 
 @Serializable
-data class TripReportPayload(
+data class TripRecordsPayload(
     val imei: String,
-    val trip: TripTelemetryData
+    val unSyncedTrips: List<TripTelemetryData>
 )
