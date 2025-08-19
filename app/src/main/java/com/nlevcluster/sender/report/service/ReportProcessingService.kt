@@ -172,6 +172,7 @@ class ReportProcessingService : Service() {
     private var averageCurrent = 0.0
     private var maxBatteryCurrent = 0.0
     private var maxBatteryVoltage = 0.0
+    private var batteryTemperature = 0.0
     private var lastKnownSoc: Int? = null
     private var currentSoc: Int = 0
 
@@ -418,6 +419,7 @@ class ReportProcessingService : Service() {
                 sendChargingData(chargingData)
             }
         }
+        batteryTemperature = canFeed.battery.temperature
         handleMaxBatteryCurrent(canFeed)
         handleMaxBatteryVoltage(canFeed)
     }
@@ -759,7 +761,7 @@ class ReportProcessingService : Service() {
                 batteryVoltage = canFeed.battery.volt,
                 endSOC = chargingEndSoc,
                 chargeRate = chargeRate,
-                batteryTemperature = canFeed.battery.temperature.toFloat(),
+                batteryTemperature = batteryTemperature.toFloat(),
                 maxBatteryCurrent = maxBatteryCurrent,
                 averageCurrent = getAverageCurrent(),
                 maxBatteryVoltage = maxBatteryVoltage,
