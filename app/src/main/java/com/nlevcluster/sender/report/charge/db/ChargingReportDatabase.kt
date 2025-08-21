@@ -1,9 +1,11 @@
 package com.nlevcluster.sender.report.charge.db
 
 import android.content.Context
+import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -26,7 +28,21 @@ abstract class ChargingReportDatabase : RoomDatabase() {
                     context.applicationContext,
                     ChargingReportDatabase::class.java,
                     "charge_report_db"
-                ).build()
+                ).addCallback(object : Callback() {
+                    override fun onOpen(db: SupportSQLiteDatabase) {
+                        Log.d("RoomMigration", "Charge DB opened at version ${db.version}")
+                        // Maximum durability settings
+                        db.execSQL("PRAGMA synchronous = FULL") //TODO - To be removed with power management feature in AOSP
+                    }
+
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        Log.d("RoomMigration", "Charge DB created at version ${db.version}")
+                    }
+
+                    override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
+                        Log.d("RoomMigration", "onDestructiveMigration ${db}")
+                    }
+                }).build()
                 INSTANCE = instance
                 instance
             }
