@@ -24,10 +24,12 @@ import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
 import com.nlevcluster.sender.model.CanFeed
 import com.nlevcluster.sender.model.ChargeTelemetryData
+import com.nlevcluster.sender.model.ChargingSessionInfoWrapper
 import com.nlevcluster.sender.model.ChargingSessionPayload
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.LocationInfo
 import com.nlevcluster.sender.model.ModeStats
+import com.nlevcluster.sender.model.TripDataInfoWrapper
 import com.nlevcluster.sender.model.TripRecordsPayload
 import com.nlevcluster.sender.model.TripTelemetryData
 import com.nlevcluster.sender.nllogger.LogHelper
@@ -865,15 +867,14 @@ class ReportProcessingService : Service() {
     }
 
     private fun startTripSync() {
-
         tripSyncJob = externalScope.launch {
             imei?.let { imeiNumber ->
                 val unSyncedTripsEntities = tripDao?.getUnSyncedTrips()
                 unSyncedTripsEntities?.let {
-                    val unSyncedTrips = convertToTripReports(it)
+                    val unSyncedTrips = convertToTripReports(imeiNumber, it)
                     unSyncedTrips.forEach { trip ->
                         sendDataToPortal(
-                            createTripFeed(trip, imeiNumber),
+                            createTripFeed(trip),
                             Constants.TOPIC_TRIP_REPORT
                         ) { isSuccess, messageSize, feedData ->
                             val status = if (isSuccess) "Published" else "Failed to publish"
@@ -908,10 +909,10 @@ class ReportProcessingService : Service() {
             imei?.let { imeiNumber ->
                 val unSyncedChargingSessionsEntities = chargingDao?.getUnSyncedChargingSessions()
                 unSyncedChargingSessionsEntities?.let {
-                    val unSyncedChargingSessions = convertToChargingTelemetryData(it)
+                    val unSyncedChargingSessions = convertToChargingTelemetryData(imeiNumber, it)
                     unSyncedChargingSessions.forEach { chargingSession ->
                         sendDataToPortal(
-                            createChargingSessionsFeed(chargingSession, imeiNumber),
+                            createChargingSessionsFeed(chargingSession),
                             Constants.TOPIC_CHARGING_REPORT
                         ) { isSuccess, messageSize, feedData ->
                             val status = if (isSuccess) "Published" else "Failed to publish"
@@ -941,17 +942,11 @@ class ReportProcessingService : Service() {
         topic: String,
         onComplete: (isSuccess: Boolean, messageSize: Int, feedData: String) -> Unit = { b: Boolean, i: Int, s: String -> }
     ) {
-        val mqttPacket = """
-        {
-            "type":"$topic",
-            "data":${feedData}
-        }
-        """.trimIndent()
-        logcat { "sendDataToPortal $mqttPacket" }
+        logcat { "sendDataToPortal $feedData" }
 
-        val messageSize = mqttPacket.toByteArray().size
+        val messageSize = feedData.toByteArray().size
         showNotification("Publishing message of $messageSize Bytes") //Show only important data like seq no.
-        portalMQTTClient.publish(topic, mqttPacket) { isSuccess ->
+        portalMQTTClient.publish(topic, feedData) { isSuccess ->
             onComplete(isSuccess, messageSize, feedData)
         }
     }
@@ -977,18 +972,15 @@ class ReportProcessingService : Service() {
     }
 
 
-    private fun createTripFeed(trip: TripTelemetryData, imei: String): String {
-        val payload = TripRecordsPayload(imei = imei, listOf(trip))
-        val tripReportFeed = Json.encodeToString(payload)
+    private fun createTripFeed(trip: TripDataInfoWrapper): String {
+        val tripReportFeed = Json.encodeToString(trip)
         return tripReportFeed
     }
 
     private fun createChargingSessionsFeed(
-        chargingSession: ChargeTelemetryData,
-        imei: String
+        chargingSession: ChargingSessionInfoWrapper,
     ): String {
-        val payload = ChargingSessionPayload(imei = imei, chargingSession = chargingSession)
-        val chargingSessionFeed = Json.encodeToString(payload)
+        val chargingSessionFeed = Json.encodeToString(chargingSession)
         return chargingSessionFeed
     }
 

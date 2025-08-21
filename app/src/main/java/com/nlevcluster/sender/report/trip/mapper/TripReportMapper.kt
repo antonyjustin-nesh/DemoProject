@@ -1,7 +1,9 @@
 package com.nlevcluster.sender.report.trip.mapper
 
+import com.nlevcluster.sender.model.Trip
+import com.nlevcluster.sender.model.TripDataInfo
+import com.nlevcluster.sender.model.TripDataInfoWrapper
 import com.nlevcluster.sender.model.TripRecord
-import com.nlevcluster.sender.model.TripTelemetryData
 import com.nlevcluster.sender.report.content_provider.ReportContentProvider.Companion.NOMINAL_ENERGY
 import com.nlevcluster.sender.report.trip.db.TripReportEntity
 
@@ -43,29 +45,49 @@ fun TripReportEntity.toTripRecord(): TripRecord {
     )
 }
 
-fun convertToTripReports(entities: List<TripReportEntity>): List<TripTelemetryData> {
+fun convertToTripReports(
+    imei: String,
+    entities: List<TripReportEntity>
+): List<TripDataInfoWrapper> {
     return entities.map { entity ->
-        TripTelemetryData(
-            tripId = entity.id,
-            averageSpeedKmph = entity.averageSpeedKmph,
-            maximumSpeedKmph = entity.maximumSpeedKmph,
-            idleDurationMs = entity.idleDurationMs,
-            startSOC = entity.startSOC,
-            endSOC = entity.endSOC,
-            speedAlertsCount = entity.speedAlertsCount,
-            idleAlertsCount = entity.idleAlertsCount,
-            harshAlertsCount = entity.harshAlertsCount,
-            modeStats = entity.modeStats,
-            regenCount = entity.regenCount,
-            startOdometer = entity.startOdometer,
-            endOdometer = entity.endOdometer,
-            startTripLocationLat = entity.startTripLocationLat,
-            startTripLocationLon = entity.startTripLocationLon,
-            endTripLocationLat = entity.endTripLocationLat,
-            endTripLocationLon = entity.endTripLocationLon,
-            tripStartTimeDurationMs = entity.tripStartTimeDurationMs,
-            tripEndTimeDurationMs = entity.tripEndTimeDurationMs,
-            tripStatus = entity.tripStatus,
+        val consumedEnergyPercentage = entity.startSOC - entity.endSOC
+        val energyWh = calculateEnergyConsumedInWh(consumedEnergyPercentage)
+        val energyKWh = energyWh / 1000.0
+        val distanceKm = entity.endOdometer - entity.startOdometer
+
+        TripDataInfoWrapper(
+            TripDataInfo(
+                imei = imei,
+                trip = Trip(
+                    tripId = entity.id,
+                    tripStartTime = entity.tripStartTimeDurationMs,
+                    tripEndTime = entity.tripEndTimeDurationMs,
+                    idleDuration = entity.idleDurationMs,
+                    movingDuration = (entity.tripEndTimeDurationMs - entity.tripStartTimeDurationMs) - entity.idleDurationMs,
+                    startLatitude = entity.startTripLocationLat,
+                    startLongitude = entity.startTripLocationLon,
+                    endLatitude = entity.endTripLocationLat,
+                    endLongitude = entity.endTripLocationLon,
+                    startOdometer = entity.startOdometer,
+                    endOdometer = entity.endOdometer,
+                    startSoc = entity.startSOC,
+                    endSoc = entity.endSOC,
+                    avgSpeed = entity.averageSpeedKmph.toInt(),
+                    maxSpeed = entity.maximumSpeedKmph.toInt(),
+                    driveModeStats = entity.modeStats,
+                    energyConsumedWh = energyWh,
+                    energyConsumedKWh = energyKWh,
+                    energyEfficiencyWh = calculateEnergyEfficiencyKmPerWh(
+                        consumedEnergyPercentage,
+                        distanceKm.toInt()
+                    ),
+                    energyEfficiencyKWh = calculateEnergyEfficiencyKmPerUnit(
+                        consumedEnergyPercentage,
+                        distanceKm.toInt())
+                    ,
+                    regenCount = entity.regenCount
+                )
+            )
         )
     }
 }
