@@ -14,12 +14,17 @@ import android.database.Cursor
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
+import com.nlevcluster.aidl.IAckCallback
 import com.nlevcluster.aidl.IProcessedFeedCallback
 import com.nlevcluster.aidl.IUartService
 import com.nlevcluster.sender.R
@@ -28,16 +33,27 @@ import com.nlevcluster.sender.data.constants.Constants.APPLY_VIP_URI
 import com.nlevcluster.sender.data.constants.Constants.DEFAULT_IGN_OFF_DELAY
 import com.nlevcluster.sender.data.constants.Constants.DEFAULT_IGN_ON_DELAY
 import com.nlevcluster.sender.data.constants.Constants.MODEL_VIP_URI
+import com.nlevcluster.sender.model.BatteryFeed
 import com.nlevcluster.sender.model.CanFeed
 import com.nlevcluster.sender.model.EvMode
+import com.nlevcluster.sender.model.GPSFeed
+import com.nlevcluster.sender.model.ICFeed
 import com.nlevcluster.sender.model.Ignition
+import com.nlevcluster.sender.model.IgnitionStatus
 import com.nlevcluster.sender.model.LocationInfo
+import com.nlevcluster.sender.model.MotorFeed
 import com.nlevcluster.sender.model.VIP
+import com.nlevcluster.sender.model.VehicleCANFeed
+import com.nlevcluster.sender.model.VehicleFeedWrapper
+import com.nlevcluster.sender.model.VehicleInfo
+import com.nlevcluster.sender.model.VehicleInfoWrapper
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
+import com.nlevcluster.sender.report.VehicleState
 import com.nlevcluster.sender.util.MQTTUtil
 import com.nlevcluster.sender.util.NLDataStore
 import com.nlevcluster.sender.util.Util
+import com.nlevcluster.sender.util.determineVehicleState
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -56,6 +72,9 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import logcat.asLog
 import logcat.logcat
@@ -65,7 +84,7 @@ import javax.inject.Inject
 
 const val IGNITION_ON_DELAY = 30_000L
 const val IGNITION_OFF_DELAY = 180_000L
-const val INTERVAL_IN_MILLIS = 15_000L
+const val INTERVAL_IN_MILLIS = 60_000L
 const val NOTIFICATION_ID = 3
 
 @AndroidEntryPoint
@@ -94,7 +113,8 @@ class DataSendService : Service() {
     private val externalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var senderJob: Job? = null
 
-    private val reportProcessingService: String = "com.nlevcluster.sender.report.service.ReportProcessingService"
+    private val reportProcessingService: String =
+        "com.nlevcluster.sender.report.service.ReportProcessingService"
 
     private val notificationTitle = "NL-Sender - Data Sync"
     private val notificationChannel = "DATA_SYNC_SERVICE"
@@ -111,8 +131,76 @@ class DataSendService : Service() {
 
     private var imei: String? = null
 
+    private var pendingBootCommand: Boolean = false
+
     private val locationManager: LocationManager by lazy {
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    }
+
+    private lateinit var connectivityManager: ConnectivityManager
+    private var pendingVehicleInfo: String? = null
+    private var retryCount = 0
+    private val maxRetries = 10
+    private val retryDelay = 5000L
+    private var firmWareVer = ""
+
+    private val ackCallback = object : IAckCallback.Stub() {
+        override fun onAckReceived(data: String?) {
+
+            if (data.isNullOrEmpty()) return
+
+            externalScope.launch {
+                runCatching {
+                    val ack = json.decodeFromString<Ack>(data)
+                    if (ack.commandName == "F99" && ack.isSuccess) {
+
+                        val sharedPref = getSharedPreferences("properties", MODE_PRIVATE)
+                        logHelper.log(
+                            tag = "ProtocolUpdate",
+                            type = LogType.DEBUG,
+                            message = "Received Firmware Version - ${ack.result}"
+                        )
+
+                        val isVehicleInfoPublished =
+                            sharedPref.getString("IsPublishVehicleInfo", null) ?: ""
+
+                        if (isVehicleInfoPublished.isEmpty()) {
+
+                            if (!isInternetAvailable()) {
+                                logHelper.log(
+                                    tag = "ProtocolUpdate",
+                                    message = "No internet, waiting to publish Vehicle Info...",
+                                    type = LogType.INFO
+                                )
+                                registerNetworkCallback()
+                                firmWareVer = ack.result
+                            } else {
+
+                                firmWareVer = ack.result
+                                imei?.let { startPublishProcess(imei = it, firmWareVer = ack.result) }
+
+                            }
+
+                        }
+
+                    }
+
+                }.onFailure {
+                    logHelper.log(
+                        tag = "ProtocolUpdate",
+                        type = LogType.DEBUG,
+                        message = "Ack parsing failed - $it"
+                    )
+                }
+            }
+
+            logHelper.log(
+                tag = "ProtocolUpdate",
+                type = LogType.DEBUG,
+                message = "Received onAckReceived from serial service $data"
+            )
+
+        }
     }
 
     private val serviceConnection = object : ServiceConnection {
@@ -122,6 +210,15 @@ class DataSendService : Service() {
             logcat(tag) { "Service connected" }
             logHelper.log(tag = tag, type = LogType.DEBUG, message = "Service connected")
             startObservingUARTData() // Start collecting data only after binding
+
+            uartService?.registerAckCallback(ackCallback)
+
+            // If boot command was pending, send it now
+            if (pendingBootCommand) {
+                sendCommand("""{"F99":"O02"}""")
+                pendingBootCommand = false
+            }
+
         }
 
         override fun onBindingDied(name: ComponentName?) {
@@ -249,10 +346,18 @@ class DataSendService : Service() {
             delay(RECONNECT_DELAY)
             if (!isBound) {
                 logcat(tag) { "Attempting to reconnect to UART service" }
-                logHelper.log(tag = tag, type = LogType.DEBUG, message = "Attempting to reconnect to UART service")
+                logHelper.log(
+                    tag = tag,
+                    type = LogType.DEBUG,
+                    message = "Attempting to reconnect to UART service"
+                )
                 bindToSerialService()
             } else {
-                logHelper.log(tag = tag, type = LogType.DEBUG, message = "UART service connected successfully")
+                logHelper.log(
+                    tag = tag,
+                    type = LogType.DEBUG,
+                    message = "UART service connected successfully"
+                )
             }
         }
     }
@@ -284,8 +389,14 @@ class DataSendService : Service() {
                             ?: IGNITION_ON_DELAY
                         else nlDataStore.ignitionOffDelay() ?: IGNITION_OFF_DELAY
 
-                    imei?.let { sendDataToPortal(canData, it) } ?: run {
-                        logHelper.log(tag = "startObservingUARTData", type = LogType.ERROR, message = "Failed to send data to portal, IMEI is null")
+                    imei?.let {
+                        sendVehicleFeedToPortal(canData, it)
+                    } ?: run {
+                        logHelper.log(
+                            tag = "ProtocolUpdate",
+                            type = LogType.ERROR,
+                            message = "Failed to send data to portal, IMEI is null"
+                        )
                         logcat { "Failed to send data to portal, IMEI is null" }
                     }
 
@@ -297,6 +408,7 @@ class DataSendService : Service() {
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         createNLSenderNotificationChannel()
         registerVIPObserver()
         bindToSerialService()
@@ -341,7 +453,11 @@ class DataSendService : Service() {
             }
         } catch (e: Exception) {
             logcat(tag) { "NLVIPHelper - Exception - ${e.message}" }
-            logHelper.log(tag = "NLVIPHelper", type = LogType.ERROR, message = "Exception while configure sender service - ${e.message}")
+            logHelper.log(
+                tag = "NLVIPHelper",
+                type = LogType.ERROR,
+                message = "Exception while configure sender service - ${e.message}"
+            )
         }
     }
 
@@ -389,7 +505,11 @@ class DataSendService : Service() {
             val sharedPref = getSharedPreferences("properties", MODE_PRIVATE)
             imei = intent?.getStringExtra("IMEI") ?: sharedPref.getString("imei", null)
             imei?.let { imeiValue ->
-                logHelper.log(tag = tag, type = LogType.INFO, message = "Started Data send service with Device IMEI - $imeiValue")
+                logHelper.log(
+                    tag = tag,
+                    type = LogType.INFO,
+                    message = "Started Data send service with Device IMEI - $imeiValue"
+                )
                 // Check if IMEI is already stored, if not, save it
                 if (sharedPref.getString("imei", null) == null) {
                     with(sharedPref.edit()) {
@@ -402,15 +522,44 @@ class DataSendService : Service() {
                     logcat { "Received imei Number - $imei" }
                     monitorMQTTConnection(imeiValue)
                     initPortalMQTTClient(imeiValue)
+
+                    val triggerFrom = intent?.getStringExtra("FROM").orEmpty()
+
+                    if (triggerFrom == "Boot_Receiver") {
+                        with(sharedPref.edit()) {
+                            putString("IsPublishVehicleInfo", "")
+                            commit()
+                        }
+                        pendingBootCommand = true
+                    }
+
                     return START_REDELIVER_INTENT
                 }
             }
         } catch (e: Exception) {
             logcat { e.asLog() }
-            logHelper.log(tag = tag, type = LogType.ERROR, message = "Exception while starting DataSendService - ${e.asLog()}")
+            logHelper.log(
+                tag = tag,
+                type = LogType.ERROR,
+                message = "Exception while starting DataSendService - ${e.asLog()}"
+            )
         }
 
         return START_STICKY
+    }
+
+    private fun sendCommand(command: String) {
+        externalScope.launch(Dispatchers.IO) {
+            runCatching {
+                uartService?.writeData(command)
+            }.onFailure {
+                logHelper.log(
+                    tag = tag,
+                    type = LogType.ERROR,
+                    message = "Failed to send command - $it"
+                )
+            }
+        }
     }
 
     private fun initReportProcessingService(context: Context) {
@@ -456,19 +605,13 @@ class DataSendService : Service() {
         notificationManager?.notify(NOTIFICATION_ID, mqttNotification)
     }
 
-    private fun sendDataToPortal(canFeed: CanFeed, imei: String) {
-        val feedData = createFeed(canFeed, imei)
-        val mqttPacket = """
-        {
-            "type":"${Constants.TOPIC_RAW_FEED}",
-            "data":${feedData}
-        }
-        """.trimIndent()
-        logcat { "sendDataToPortal $feedData" }
+    private fun sendVehicleFeedToPortal(canFeed: CanFeed, imei: String) {
+        val feedData = generateVehicleCANFeed(canFeed, imei)
+        logcat { "feedData $feedData" }
 
-        val messageSize = mqttPacket.toByteArray().size
+        val messageSize = feedData.toByteArray().size
         showNotification("Publishing message of $messageSize Bytes") //Show only important data like seq no.
-        portalMQTTClient.publish(Constants.TOPIC_RAW_FEED, mqttPacket) { isSuccess ->
+        portalMQTTClient.publish(Constants.TOPIC_VEHICLE_FEED, feedData) { isSuccess ->
             val status = if (isSuccess) "Published" else "Failed to publish"
             showNotification("$status message with $messageSize Bytes")
             logHelper.log(
@@ -476,76 +619,128 @@ class DataSendService : Service() {
                 message = "sendDataToPortal - $status \n $feedData",
                 type = LogType.INFO
             )
+            logHelper.log(
+                tag = "ProtocolUpdate",
+                message = "sendVehicleFeedToPortal - $status \n $feedData",
+                type = LogType.INFO
+            )
+
         }
     }
 
-    private fun createFeed(processedCANFeed: CanFeed, imei: String): String {
-        logcat("canFeedEntity") { "canFeedEntity.evMode - ${processedCANFeed.evMode}" }
-        val gearPos = when (processedCANFeed.evMode) {
-            EvMode.SPORTS -> "1"
-            EvMode.POWER -> "2"
-            else -> "0"
+    private fun sendVehicleInfoToPortal(
+        vehicleInfo: String,
+        onPublishComplete: (isSuccess: Boolean) -> Unit
+    ) {
+        logcat { "VehicleInfo - $vehicleInfo" }
+        logHelper.log(
+            tag = "ProtocolUpdate",
+            message = "sendVehicleInfoToPortal - vehicleInfo - $vehicleInfo",
+            type = LogType.INFO
+        )
+
+        val messageSize = vehicleInfo.toByteArray().size
+        showNotification("Publishing message of $messageSize Bytes") //Show only important data like seq no.
+        portalMQTTClient.publish(Constants.TOPIC_VEHICLE_FEED, vehicleInfo) { isSuccess ->
+            val status = if (isSuccess) "Published" else "Failed to publish"
+            showNotification("$status message with $messageSize Bytes")
+            logHelper.log(
+                tag = "Send Data to portal",
+                message = "sendDataToPortal - $status \n $vehicleInfo",
+                type = LogType.INFO
+            )
+            logHelper.log(
+                tag = "ProtocolUpdate",
+                message = "sendVehicleInfoToPortal - $status \n $vehicleInfo",
+                type = LogType.INFO
+            )
+            onPublishComplete(isSuccess)
         }
-        logcat("canFeedEntity") { "gearPos - $gearPos" }
-
-        //Vehicle Mode P/N/D/R
-        val vehicleStatus = when (processedCANFeed.ignition) {
-            Ignition.REVERSE -> "1"
-            Ignition.DRIVE -> "4"
-            Ignition.NEUTRAL -> "2"
-            else -> "0"
-        }
-
-        val moving = if (processedCANFeed.transmission.speed == 0) 0 else 1
-
-        return """
-            {
-              "imei": "$imei",
-              "sequenceNumber": "${processedCANFeed.seqNo}",
-              "latitude": "${processedCANFeed.currentLocation?.latitude}",
-              "longitude": "${processedCANFeed.currentLocation?.longitude}",
-              "altitude": "${processedCANFeed.currentLocation?.altitude}",
-              "time": "${Util.getTimeFromLong(processedCANFeed.createdDate)}",
-              "date": "${Util.getDateFromLong(processedCANFeed.createdDate)}",
-              "speed": "${processedCANFeed.currentLocation?.speed}",
-              "heading": "34",
-              "noOfSat": "5",
-              "mainPowerStatus": "1",
-              "ignitionStatus": "${getIgnitionStatus(processedCANFeed.ignition)}",
-              "movementStatus": "$moving",
-              "vehicleStatus": "${returnVehicleStatus(processedCANFeed.ignition)}",
-              "interBatteryVoltage": "3.9",
-              "interBatteryPercentage": "${processedCANFeed.battery.remainingPercent}",
-              "gpsOdometer": "${processedCANFeed.odometer.totalKm}",
-              "gpsDataValidityStatus": "1",
-              "packetLiveOrStoredStatus": "1",
-              "batteryVoltage": "${processedCANFeed.battery.volt}",
-              "batteryCurrent": "${processedCANFeed.battery.current}",
-              "batterySoC": "${processedCANFeed.battery.remainingPercent}",
-              "batteryCapacityRemaining": "32",
-              "vehicleSpeed": "${processedCANFeed.transmission.speed}",
-              "vehicleOdometer": "${processedCANFeed.odometer.totalKm}",
-              "motorRPM": "${processedCANFeed.transmission.rpm}",
-              "vehicleMode": "$vehicleStatus",
-              "gearPosition": "$gearPos",
-              "customerCode": "100"
-            }
-        """.trimIndent()
     }
 
-    private fun returnVehicleStatus(status: Ignition): String {
+    private fun generateVehicleInfoFeed(imei: String, firmWareVer: String): String {
+        val vehicleInfoWrapper = VehicleInfoWrapper(
+            VehicleInfo(
+                imei = imei,
+                vehicleIdentificationNumber = "1HGCM82633A004352",
+                batteryIdentificationNumber = "EV2024BIN000",
+                motorIdentificationNumber = "EV2024MIN000",
+                bmsHardwareVersion = "HW1.2.0",
+                bmsSoftwareVersion = "SW3.4.0",
+                mcuHardwareVersion = "MCU_HW_2.0",
+                mcuSoftwareVersion = "MCU_SW_3.0.0",
+            )
+        )
+        return json.encodeToString(vehicleInfoWrapper)
+    }
+
+    private fun generateVehicleCANFeed(processedCANFeed: CanFeed, imei: String): String {
+        val vehicleInfoWrapper = VehicleFeedWrapper(
+            VehicleCANFeed(
+                epochTimeStamp = "${System.currentTimeMillis() / 1000}",
+                imei = imei,
+                ignition = getIgnition(processedCANFeed.ignitionStatus),
+                vehicleStatus = getVehicleState(determineVehicleState(processedCANFeed)),
+                gpsFeed = GPSFeed(
+                    latitude = processedCANFeed.currentLocation?.latitude ?: 0.0,
+                    longitude = processedCANFeed.currentLocation?.longitude ?: 0.0,
+                    altitude = processedCANFeed.currentLocation?.altitude?.toDouble() ?: 0.0,
+                    odometer = 0.0,
+                    gpsSpeed = processedCANFeed.currentLocation?.speed ?: 0f,
+                ),
+                batteryFeed = BatteryFeed(
+                    current = processedCANFeed.battery.current.toFloat(),
+                    voltage = processedCANFeed.battery.volt.toFloat(),
+                    soc = processedCANFeed.battery.remainingPercent.toFloat(),
+                    status = if(getVehicleState(determineVehicleState(processedCANFeed)) == "CHARGING") "CHARGING" else "DISCHARGING",
+                    remainingCapacity = 0f,
+                    fullCapacity = 0f,
+                    energy = 0f,
+                    cycleCount = 0,
+                ),
+                icFeed = ICFeed(
+                    odometer = processedCANFeed.odometer.totalKm,
+                    speed = processedCANFeed.transmission.speed.toFloat()
+                ),
+                motorFeed = MotorFeed(
+                    current = processedCANFeed.battery.current.toFloat(),
+                    voltage = processedCANFeed.battery.volt.toFloat(),
+                    speed = processedCANFeed.transmission.speed,
+                    odometer = processedCANFeed.odometer.totalKm,
+                    rpm = processedCANFeed.transmission.rpm.toInt(),
+                    motorTemperature = 0f,
+                    gearPosition = when (processedCANFeed.evMode) {
+                        EvMode.SPORTS -> 1
+                        EvMode.POWER -> 2
+                        else -> 0
+                    },
+                    breakPosition = "FRONT_RIGHT",
+                    controllerTemperature = 0f,
+                    torque = 0f,
+                    direction = 0,
+                    fault = 0
+                )
+            )
+        )
+        return json.encodeToString(vehicleInfoWrapper)
+    }
+
+    private fun getIgnition(status: IgnitionStatus): Int {
         return when (status) {
-            Ignition.PARK -> "0"
-            Ignition.DRIVE -> "1"
-            Ignition.NEUTRAL -> "0"
-            Ignition.REVERSE -> "1"
+            IgnitionStatus.ON -> 0
+            IgnitionStatus.OFF -> 1
         }
     }
 
-    private fun getIgnitionStatus(status: Ignition): String {
-        return when (status) {
-            Ignition.PARK -> "0"
-            Ignition.DRIVE, Ignition.NEUTRAL, Ignition.REVERSE -> "1"
+    private fun getVehicleState(vehicleState: VehicleState): String {
+        return when (vehicleState) {
+            VehicleState.RUNNING -> "RUNNING"
+            VehicleState.IDLE -> "IDLE"
+            VehicleState.STOP -> "STOP"
+            VehicleState.CHARGING -> "CHARGING"
+            VehicleState.OFFLINE -> "OFFLINE"
+            VehicleState.TOWING -> "TOWING"
+            VehicleState.UNKNOWN -> "UNKNOWN"
         }
     }
 
@@ -582,8 +777,91 @@ class DataSendService : Service() {
         notificationManager?.let { nm ->
             nm.createNotificationChannel(channel)
             isNotificationChannelCreated = true
-            logHelper.log(tag = tag, type = LogType.INFO, message = "createNLSenderNotificationChannel - Created notification channel")
+            logHelper.log(
+                tag = tag,
+                type = LogType.INFO,
+                message = "createNLSenderNotificationChannel - Created notification channel"
+            )
         }
+    }
+
+    private fun startPublishProcess(imei: String, firmWareVer: String) {
+        val vehicleInfo = generateVehicleInfoFeed(imei, firmWareVer)
+        logHelper.log(
+            tag = "ProtocolUpdate",
+            type = LogType.INFO,
+            message = "generateVehicleInfoFeed - $vehicleInfo"
+        )
+        pendingVehicleInfo = vehicleInfo
+        retryPublish()
+    }
+
+    private fun retryPublish() {
+        pendingVehicleInfo?.let { info ->
+            sendVehicleInfoToPortal(info) { isSuccess ->
+                if (isSuccess) {
+                    logHelper.log(
+                        tag = "ProtocolUpdate",
+                        type = LogType.INFO,
+                        message = "SendVehicleInfoToPortal - Success"
+                    )
+                    getSharedPreferences("properties", MODE_PRIVATE)
+                        .edit()
+                        .putString("IsPublishVehicleInfo", "PUBLISHED")
+                        .apply()
+                    unregisterNetworkCallback()
+                } else {
+                    if (retryCount < maxRetries) {
+                        retryCount++
+                        logHelper.log(
+                            tag = "ProtocolUpdate",
+                            type = LogType.INFO,
+                            message = "Retry #$retryCount in ${retryDelay}ms"
+                        )
+                        Handler(Looper.getMainLooper()).postDelayed({ retryPublish() }, retryDelay)
+                    } else {
+                        logHelper.log(
+                            tag = "ProtocolUpdate",
+                            type = LogType.INFO,
+                            message = "Max retries reached"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            super.onAvailable(network)
+            logHelper.log(
+                tag = "ProtocolUpdate",
+                type = LogType.INFO,
+                message = "Internet connected, starting publish... LogType.INFO"
+            )
+            unregisterNetworkCallback()
+            imei?.let { startPublishProcess(imei = it, firmWareVer = firmWareVer) }
+        }
+    }
+
+    private fun registerNetworkCallback() {
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        connectivityManager.registerNetworkCallback(request, networkCallback)
+    }
+
+    private fun unregisterNetworkCallback() {
+        try {
+            connectivityManager.unregisterNetworkCallback(networkCallback)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun isInternetAvailable(): Boolean {
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
 
@@ -616,6 +894,19 @@ class DataSendService : Service() {
                 false
             }
         }
+    }
+
+    @Serializable
+    data class Ack(
+        @SerialName("A11")
+        val commandName: String = "",
+        @SerialName("A12")
+        val status: String = "",
+        @SerialName("A13")
+        val result: String = ""
+    ) {
+        val isSuccess: Boolean = status == "A21"
+        val isFailure: Boolean = status == "A22"
     }
 
     companion object {

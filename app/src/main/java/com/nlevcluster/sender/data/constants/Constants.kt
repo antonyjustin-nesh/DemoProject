@@ -17,6 +17,7 @@ object Constants {
 
     // Portal MQTT Topics
     const val TOPIC_RAW_FEED = "RAW_FEED"
+    const val TOPIC_VEHICLE_FEED = "CLUSTER_DATA"
     const val TOPIC_HEALTH_PACKET = "HEALTH_PACKET"
     const val TOPIC_TRIP_REPORT = "TRIP_REPORT"
     const val TOPIC_CHARGING_REPORT = "CHARGING_REPORT"
