@@ -18,11 +18,12 @@ import com.nlevcluster.sender.report.alerts.AlertEntity
         TripReportEntity::class,
         AlertEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2, spec = TripReportDatabase.MigrationV2::class),
-        AutoMigration(from = 2, to = 3, spec = TripReportDatabase.MigrationV3::class)
+        AutoMigration(from = 2, to = 3, spec = TripReportDatabase.MigrationV3::class),
+        AutoMigration(from = 3, to = 4, spec = TripReportDatabase.MigrationV4::class)
     ]
 )
 
@@ -57,6 +58,22 @@ abstract class TripReportDatabase : RoomDatabase() {
             Log.d("RoomMigration", "MigrationV3 applied from ${db.version}")
         }
     }
+
+    @DeleteColumn(columnName = "SPEED_ALERTS", tableName = "trip_report")
+    @DeleteColumn(columnName = "IDLE_ALERTS", tableName = "trip_report")
+    @DeleteColumn(columnName = "HARSH_ALERTS", tableName = "trip_report")
+    open class MigrationV4 : AutoMigrationSpec {
+        init {
+            Log.d("RoomMigration", "MigrationV4 init")
+        }
+
+        override fun onPostMigrate(db: SupportSQLiteDatabase) {
+            Log.d("RoomMigration", "MigrationV4 applied from ${db.version}")
+        }
+    }
+
+
+
 
     companion object {
         @Volatile

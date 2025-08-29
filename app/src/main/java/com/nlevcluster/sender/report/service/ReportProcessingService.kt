@@ -729,10 +729,10 @@ class ReportProcessingService : Service() {
                 tripStatus = _tripStatus.value,
                 maximumSpeedKmph = maxCanSpeed.toFloat(),
                 idleDurationMs = totalIdleTime,
-                idleAlertsCount = idleAlertCount,
+                //idleAlertsCount = idleAlertCount,
                 averageSpeedKmph = averageSpeed.toFloat(),
-                speedAlertsCount = speedAlertCount,
-                harshAlertsCount = harshAlertsCount,
+                //speedAlertsCount = speedAlertCount,
+                //harshAlertsCount = harshAlertsCount,
                 modeStats = modeStatsJson,
                 endTripLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
                 endTripLocationLon = canFeed.currentLocation?.longitude ?: 0.0

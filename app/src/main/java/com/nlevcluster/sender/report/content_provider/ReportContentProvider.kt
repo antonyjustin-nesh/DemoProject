@@ -412,9 +412,9 @@ class ReportContentProvider : ContentProvider() {
 
         var totalSocConsumption = 0
 
-        var totalSpeedAlerts = 0
-        var totalIdleAlerts = 0
-        var totalHarshAlerts = 0
+        //var totalSpeedAlerts = 0
+        //var totalIdleAlerts = 0
+        //var totalHarshAlerts = 0
         var totalRegenCount = 0
 
         var ecoDistance = 0.0
@@ -451,10 +451,10 @@ class ReportContentProvider : ContentProvider() {
             }
             maxSpeed = maxOf(maxSpeed, trip.maximumSpeedKmph)
             totalSocConsumption += (trip.endSOC - trip.startSOC)
-            totalSpeedAlerts += trip.speedAlertsCount
+            //totalSpeedAlerts += trip.speedAlertsCount
             totalAverageSpeed += trip.averageSpeedKmph
-            totalIdleAlerts += trip.idleAlertsCount
-            totalHarshAlerts += trip.harshAlertsCount
+            //totalIdleAlerts += trip.idleAlertsCount
+            //totalHarshAlerts += trip.harshAlertsCount
             totalRegenCount += trip.regenCount
             totalDistance += (trip.endOdometer - trip.startOdometer)
             totalIdleDuration += trip.idleDurationMs
@@ -491,9 +491,9 @@ class ReportContentProvider : ContentProvider() {
             averageSpeedKmph = averageSpeed,
             maximumSpeedKmph = maxSpeed,
             tripCount = totalTrips,
-            speedAlertsCount = totalSpeedAlerts,
-            idleAlertsCount = totalIdleAlerts,
-            harshAlertsCount = totalHarshAlerts,
+            //speedAlertsCount = totalSpeedAlerts,
+            //idleAlertsCount = totalIdleAlerts,
+            //harshAlertsCount = totalHarshAlerts,
             regenCount = totalRegenCount,
             tripDistanceKm = totalDistance,
             idleDuration = totalIdleDuration,
