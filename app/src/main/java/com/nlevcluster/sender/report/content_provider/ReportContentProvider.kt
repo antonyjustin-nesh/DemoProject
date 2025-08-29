@@ -592,10 +592,10 @@ class ReportContentProvider : ContentProvider() {
 
     private fun getUsageLevel(usageLimit: Int): Int {
         return when {
-            usageLimit <= 0 -> 0
-            usageLimit < 30 -> 1
-            usageLimit < 50 -> 2
-            else -> 3
+            (usageLimit in 1..19)-> 1
+            (usageLimit in 20..29)-> 2
+            usageLimit > 30-> 3
+            else -> 0
         }
     }
 

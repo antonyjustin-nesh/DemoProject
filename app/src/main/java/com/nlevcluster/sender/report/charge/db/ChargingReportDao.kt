@@ -15,7 +15,7 @@ interface ChargingReportDao {
     @Query("SELECT * FROM charging_session WHERE CHARGING_SESSION_ID = :chargingSessionId LIMIT 1")
     fun getChargingSessionBySessionId(chargingSessionId: Int): ChargingSessionEntity?
 
-    @Query("SELECT * FROM charging_session WHERE END_TIME BETWEEN :startTime AND :endTime ORDER BY END_TIME DESC")
+    @Query("SELECT * FROM charging_session WHERE END_TIME BETWEEN :startTime AND :endTime AND CHARGING_SESSION_STATUS = 'COMPLETED' ORDER BY END_TIME DESC")
     fun getChargingSessionsByEndTimeRange(
         startTime: Long,
         endTime: Long

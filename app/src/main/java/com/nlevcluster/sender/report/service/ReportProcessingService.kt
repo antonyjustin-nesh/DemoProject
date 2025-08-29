@@ -42,6 +42,7 @@ import com.nlevcluster.sender.report.charge.db.ChargingReportDatabase
 import com.nlevcluster.sender.report.charge.db.ChargingSessionEntity
 import com.nlevcluster.sender.report.charge.mapper.convertToChargingTelemetryData
 import com.nlevcluster.sender.report.trip.ChargingData
+import com.nlevcluster.sender.report.trip.ChargingSessionStatus
 import com.nlevcluster.sender.report.trip.TripStatus
 import com.nlevcluster.sender.report.trip.db.TripReportDao
 import com.nlevcluster.sender.report.trip.db.TripReportDatabase
@@ -162,7 +163,9 @@ class ReportProcessingService : Service() {
     private val isChargingValid = AtomicBoolean(false)
 
     private var chargingSessionId = 0
+    private var startingChargingTimeMillis: Long = 0L
     private var endingChargingTimeMillis: Long = 0L
+    private var chargingStartSoc: Int = 0
     private var chargingEndSoc: Int = 0
     private var totalVoltage = 0
     private var sampleVoltageCount = 0
@@ -184,6 +187,7 @@ class ReportProcessingService : Service() {
     private var chargingSyncJob: Job? = null
 
     private val _tripStatus = MutableStateFlow(TripStatus.NOT_STARTED)
+    private val _chargingSessionStatus = MutableStateFlow(ChargingSessionStatus.NOT_STARTED)
     private val locationManager: LocationManager by lazy {
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
@@ -343,15 +347,7 @@ class ReportProcessingService : Service() {
                     )
                     canFeed
                 }
-//                    .combine(batteryCurrentFlow) { canFeed, batteryCurrent ->
-//                    canFeed.battery = Battery(
-//                        current = batteryCurrent,
-//                        remainingPercent = canFeed.battery.remainingPercent,
-//                        soc = canFeed.battery.soc
-//                    )
-//                    canFeed
-//                    }
-                        .flatMapLatest { canData ->
+                .flatMapLatest { canData ->
                     val vehicleState = flowOf(determineVehicleState(canData))
                     combine(
                         vehicleState,
@@ -374,9 +370,11 @@ class ReportProcessingService : Service() {
             if (lastKnownSoc != null && lastKnownSoc != currentSoc) {
                 val chargingData = json.encodeToString(
                     ChargingData(
-                    vehicleState,
-                    System.currentTimeMillis(),
-                    canFeed.battery.remainingPercent))
+                        vehicleState,
+                        System.currentTimeMillis(),
+                        canFeed.battery.remainingPercent
+                    )
+                )
                 sendChargingData(chargingData)
             }
             lastKnownSoc = currentSoc
@@ -412,10 +410,11 @@ class ReportProcessingService : Service() {
                 entryStartChargeSession(canFeed)
                 val chargingData = json.encodeToString(
                     ChargingData(
-                    VehicleState.CHARGING,
-                    System.currentTimeMillis(),
-                    canFeed.battery.remainingPercent
-                ))
+                        VehicleState.CHARGING,
+                        System.currentTimeMillis(),
+                        canFeed.battery.remainingPercent
+                    )
+                )
                 sendChargingData(chargingData)
             }
         }
@@ -472,10 +471,10 @@ class ReportProcessingService : Service() {
             handleChargingDuration(canFeed)
             val chargingData = json.encodeToString(
                 ChargingData(
-                VehicleState.IDLE,
-                System.currentTimeMillis(),
-                canFeed.battery.remainingPercent
-            )
+                    VehicleState.IDLE,
+                    System.currentTimeMillis(),
+                    canFeed.battery.remainingPercent
+                )
             )
             sendChargingData(chargingData)
         }
@@ -489,7 +488,11 @@ class ReportProcessingService : Service() {
                     alertsDao?.insertAlert(
                         AlertEntity(
                             timestamp = currentTime,
-                            description = "Idle Alert Detected Idle Duration - ${formatMillisToHHMMSS(currentIdleTime)}",
+                            description = "Idle Alert Detected Idle Duration - ${
+                                formatMillisToHHMMSS(
+                                    currentIdleTime
+                                )
+                            }",
                             type = AlertType.IDLE
                         )
                     )
@@ -614,12 +617,15 @@ class ReportProcessingService : Service() {
                 alertsDao?.insertAlert(
                     AlertEntity(
                         timestamp = currentTime,
-                        description = "Harsh Alert Detected at speed - $currentSpeed DeltaTime - ${formatMillisToHHMMSS(deltaTime)} DeltaSpeed - $deltaSpeed",
+                        description = "Harsh Alert Detected at speed - $currentSpeed DeltaTime - ${
+                            formatMillisToHHMMSS(
+                                deltaTime
+                            )
+                        } DeltaSpeed - $deltaSpeed",
                         type = AlertType.HARSH_ACCELERATION
                     )
                 )
             }
-        } else {
         }
 
     }
@@ -681,7 +687,7 @@ class ReportProcessingService : Service() {
         externalScope.launch(Dispatchers.IO) {
             tripId = tripDao?.insertTrip(
                 TripReportEntity(
-                    startSOC = canFeed.battery.remainingPercent,
+                    startSOC = startSoc,
                     startOdometer = startOdometer,
                     tripStartTimeDurationMs = tripStartTimeDurationMs,
                     tripStatus = _tripStatus.value,
@@ -706,7 +712,13 @@ class ReportProcessingService : Service() {
             idleAlertCheckFlag = false
         }
 
-        _tripStatus.value = TripStatus.COMPLETED
+        val consumedSOC = startSoc - endSoc
+        if(consumedSOC >= 0) {
+            _tripStatus.value = TripStatus.COMPLETED
+        } else {
+            _tripStatus.value = TripStatus.FAILED
+        }
+
 
         externalScope.launch(Dispatchers.IO) {
             val existing = tripDao?.getTripByTripId(tripId)
@@ -733,14 +745,14 @@ class ReportProcessingService : Service() {
 
     private fun entryStartChargeSession(canFeed: CanFeed) {
         externalScope.launch(Dispatchers.IO) {
-            val startChargingTimeMs = System.currentTimeMillis()
-            val startSOC = canFeed.battery.remainingPercent
+            startingChargingTimeMillis = System.currentTimeMillis()
+            chargingStartSoc = canFeed.battery.remainingPercent
 
             chargingSessionId = chargingDao?.insertChargingSession(
                 ChargingSessionEntity(
-                    startSOC = startSOC,
+                    startSOC = chargingStartSoc,
                     batteryCurrent = canFeed.battery.current,
-                    chargingStartTimeDurationMs = startChargingTimeMs,
+                    chargingStartTimeDurationMs = startingChargingTimeMillis,
                     startChargingLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
                     startChargingLocationLon = canFeed.currentLocation?.longitude ?: 0.0,
                 )
@@ -754,10 +766,17 @@ class ReportProcessingService : Service() {
         val chargeRate = (canFeed.battery.volt * canFeed.battery.current) / 1000
         averageVoltage = getAverageVoltage()
         averageCurrent = getAverageCurrent()
+
+        val deliveredSOC = chargingEndSoc - chargingStartSoc
+        if(deliveredSOC >= 0) {
+            _chargingSessionStatus.value = ChargingSessionStatus.COMPLETED
+        } else {
+            _chargingSessionStatus.value = ChargingSessionStatus.FAILED
+        }
+
         externalScope.launch(Dispatchers.IO) {
             val existing = chargingDao?.getChargingSessionBySessionId(chargingSessionId)
             val updated = existing?.copy(
-                //batteryCurrent = canFeed.battery.current,
                 batteryVoltage = canFeed.battery.volt,
                 endSOC = chargingEndSoc,
                 chargeRate = chargeRate,
@@ -766,6 +785,7 @@ class ReportProcessingService : Service() {
                 averageCurrent = getAverageCurrent(),
                 maxBatteryVoltage = maxBatteryVoltage,
                 averageVoltage = averageVoltage,
+                sessionStatus = _chargingSessionStatus.value,
                 chargingEndTimeDurationMs = endingChargingTimeMillis,
                 endChargingLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
                 endChargingLocationLon = canFeed.currentLocation?.longitude ?: 0.0,
@@ -1040,7 +1060,10 @@ class ReportProcessingService : Service() {
         return tripReportFeed
     }
 
-    private fun createChargingSessionsFeed(chargingSession: ChargeTelemetryData, imei: String): String {
+    private fun createChargingSessionsFeed(
+        chargingSession: ChargeTelemetryData,
+        imei: String
+    ): String {
         val payload = ChargingSessionPayload(imei = imei, chargingSession = chargingSession)
         val chargingSessionFeed = Json.encodeToString(payload)
         return chargingSessionFeed
@@ -1080,7 +1103,8 @@ class ReportProcessingService : Service() {
         private const val SERIAL_SERVICE_PACKAGE_NAME = "com.nlevcluster.serialservice"
 
         private const val DISPLAY_PACKAGE_NAME = "com.nlevcluster.display"
-        private const val CHARGING_DATA_ACTION_NAME = "com.nlevcluster.display.ACTION_SEND_CHARGE_DATA"
+        private const val CHARGING_DATA_ACTION_NAME =
+            "com.nlevcluster.display.ACTION_SEND_CHARGE_DATA"
         const val CLEAR_VIP_URI = "content://com.nlevcluster.nl_admin.vip_provider/clear_all_data"
         private const val CHARGE_DATA = "CHARGE_DATA"
         private const val TIME_STAMP = "TIME_STAMP"
