@@ -363,6 +363,13 @@ class ReportContentProvider : ContentProvider() {
                 return 1
             }
 
+            CLEAR_ALL_ALERTS -> {
+                logHelper.log(type = LogType.INFO, tag = tag, message = "Deleting all alerts")
+                tripDao.deleteAllAlerts()
+                context?.contentResolver?.notifyChange(uri, null)
+                return 1
+            }
+
             CLEAR_ALL_CHARGING_SESSIONS -> {
                 logHelper.log(type = LogType.INFO, tag = tag, message = "Deleting all charging sessions")
                 chargingReportDao.deleteAllChargingSessions()
@@ -491,9 +498,6 @@ class ReportContentProvider : ContentProvider() {
             averageSpeedKmph = averageSpeed,
             maximumSpeedKmph = maxSpeed,
             tripCount = totalTrips,
-            //speedAlertsCount = totalSpeedAlerts,
-            //idleAlertsCount = totalIdleAlerts,
-            //harshAlertsCount = totalHarshAlerts,
             regenCount = totalRegenCount,
             tripDistanceKm = totalDistance,
             idleDuration = totalIdleDuration,
@@ -605,6 +609,7 @@ class ReportContentProvider : ContentProvider() {
         const val MONTHLY_TRIP_REPORT = "monthly_trip_report"
         const val DAY_WISE_TRIP_REPORT = "day_wise_trip_report"
         const val CLEAR_ALL_TRIPS = "clear_all_trips"
+        const val CLEAR_ALL_ALERTS = "clear_all_alerts"
         const val MONTHLY_CHARGING_REPORT = "monthly_charging_report"
         const val DAY_WISE_CHARGING_REPORT = "day_wise_charging_report"
         const val CLEAR_ALL_CHARGING_SESSIONS = "clear_all_charging_sessions"

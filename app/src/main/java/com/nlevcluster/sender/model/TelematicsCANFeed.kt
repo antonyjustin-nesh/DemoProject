@@ -97,11 +97,11 @@ data class MotorFeed(
     @SerialName("302")
     val voltage: Float,
     @SerialName("303")
-    val speed: Int,
+    val speed: Double,
     @SerialName("304")
     val odometer: Double,
     @SerialName("305")
-    val rpm: Int,
+    val rpm: Double,
     @SerialName("306")
     val motorTemperature: Float,
     @SerialName("307")

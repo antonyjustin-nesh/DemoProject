@@ -703,11 +703,11 @@ class DataSendService : Service() {
                     speed = processedCANFeed.transmission.speed.toFloat()
                 ),
                 motorFeed = MotorFeed(
-                    current = processedCANFeed.battery.current.toFloat(),
-                    voltage = processedCANFeed.battery.volt.toFloat(),
-                    speed = processedCANFeed.transmission.speed,
+                    current = 0f,
+                    voltage = 0f,
+                    speed = processedCANFeed.transmission.rpm,
                     odometer = processedCANFeed.odometer.totalKm,
-                    rpm = processedCANFeed.transmission.rpm.toInt(),
+                    rpm = processedCANFeed.transmission.rpm,
                     motorTemperature = 0f,
                     gearPosition = when (processedCANFeed.evMode) {
                         EvMode.SPORTS -> 1
@@ -727,8 +727,8 @@ class DataSendService : Service() {
 
     private fun getIgnition(status: IgnitionStatus): Int {
         return when (status) {
-            IgnitionStatus.ON -> 0
-            IgnitionStatus.OFF -> 1
+            IgnitionStatus.ON -> 1
+            IgnitionStatus.OFF -> 0
         }
     }
 

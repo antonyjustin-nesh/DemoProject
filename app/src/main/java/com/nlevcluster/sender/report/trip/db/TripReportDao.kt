@@ -40,4 +40,7 @@ interface TripReportDao {
     @Query("DELETE FROM trip_report")
     fun deleteAllTrips()
 
+    @Query("DELETE FROM alerts")
+    fun deleteAllAlerts()
+
 }
