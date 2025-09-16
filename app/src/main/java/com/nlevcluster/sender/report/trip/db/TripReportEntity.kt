@@ -20,12 +20,6 @@ data class TripReportEntity(
     val startSOC: Int = 0,
     @ColumnInfo(name = "END_SOC")
     val endSOC: Int = 0,
-    @ColumnInfo(name = "SPEED_ALERTS")
-    val speedAlertsCount: Int = 0,
-    @ColumnInfo(name = "IDLE_ALERTS")
-    val idleAlertsCount: Int = 0,
-    @ColumnInfo(name = "HARSH_ALERTS")
-    val harshAlertsCount: Int = 0,
     @ColumnInfo(name = "MODE_STATS")
     val modeStats: String = "",
     @ColumnInfo(name = "REGEN_COUNT")

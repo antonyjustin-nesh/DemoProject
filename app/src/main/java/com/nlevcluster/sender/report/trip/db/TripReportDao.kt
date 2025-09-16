@@ -22,7 +22,7 @@ interface TripReportDao {
     @Query("SELECT * FROM trip_report WHERE ID = :tripId LIMIT 1")
     fun getTripByTripId(tripId: Int): TripReportEntity?
 
-    @Query("SELECT * FROM trip_report WHERE END_TIME BETWEEN :startTime AND :endTime ORDER BY END_TIME DESC")
+    @Query("SELECT * FROM trip_report WHERE END_TIME BETWEEN :startTime AND :endTime AND TRIP_STATUS = 'COMPLETED' ORDER BY END_TIME DESC")
     fun getTripsByEndTimeRange(
         startTime: Long,
         endTime: Long
@@ -39,5 +39,8 @@ interface TripReportDao {
 
     @Query("DELETE FROM trip_report")
     fun deleteAllTrips()
+
+    @Query("DELETE FROM alerts")
+    fun deleteAllAlerts()
 
 }

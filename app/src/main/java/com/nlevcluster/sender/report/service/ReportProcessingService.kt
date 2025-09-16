@@ -22,23 +22,28 @@ import com.nlevcluster.aidl.IProcessedFeedCallback
 import com.nlevcluster.aidl.IUartService
 import com.nlevcluster.sender.R
 import com.nlevcluster.sender.data.constants.Constants
-import com.nlevcluster.sender.model.Battery
 import com.nlevcluster.sender.model.CanFeed
 import com.nlevcluster.sender.model.ChargeTelemetryData
+import com.nlevcluster.sender.model.ChargingSessionInfoWrapper
 import com.nlevcluster.sender.model.ChargingSessionPayload
 import com.nlevcluster.sender.model.EvMode
 import com.nlevcluster.sender.model.LocationInfo
 import com.nlevcluster.sender.model.ModeStats
-import com.nlevcluster.sender.model.TripReportPayload
+import com.nlevcluster.sender.model.TripDataInfoWrapper
+import com.nlevcluster.sender.model.TripRecordsPayload
 import com.nlevcluster.sender.model.TripTelemetryData
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.report.VehicleState
+import com.nlevcluster.sender.report.alerts.AlertDao
+import com.nlevcluster.sender.report.alerts.AlertEntity
+import com.nlevcluster.sender.report.alerts.AlertType
 import com.nlevcluster.sender.report.charge.db.ChargingReportDao
 import com.nlevcluster.sender.report.charge.db.ChargingReportDatabase
 import com.nlevcluster.sender.report.charge.db.ChargingSessionEntity
 import com.nlevcluster.sender.report.charge.mapper.convertToChargingTelemetryData
 import com.nlevcluster.sender.report.trip.ChargingData
+import com.nlevcluster.sender.report.trip.ChargingSessionStatus
 import com.nlevcluster.sender.report.trip.TripStatus
 import com.nlevcluster.sender.report.trip.db.TripReportDao
 import com.nlevcluster.sender.report.trip.db.TripReportDatabase
@@ -66,7 +71,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -77,6 +81,7 @@ import logcat.asLog
 import logcat.logcat
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import kotlin.math.abs
@@ -138,7 +143,7 @@ class ReportProcessingService : Service() {
     private var lastOverSpeedTime = 0L
     private var speedAlertCount = 0
 
-    private val IDLE_THRESHOLD = 10_000
+    private val IDLE_THRESHOLD = 60_000 * 5
     private var idleAlertCount = 0
     private var idleAlertCheckFlag = false
 
@@ -158,7 +163,9 @@ class ReportProcessingService : Service() {
     private val isChargingValid = AtomicBoolean(false)
 
     private var chargingSessionId = 0
+    private var startingChargingTimeMillis: Long = 0L
     private var endingChargingTimeMillis: Long = 0L
+    private var chargingStartSoc: Int = 0
     private var chargingEndSoc: Int = 0
     private var totalVoltage = 0
     private var sampleVoltageCount = 0
@@ -168,16 +175,19 @@ class ReportProcessingService : Service() {
     private var averageCurrent = 0.0
     private var maxBatteryCurrent = 0.0
     private var maxBatteryVoltage = 0.0
+    private var batteryTemperature = 0.0
     private var lastKnownSoc: Int? = null
     private var currentSoc: Int = 0
 
     private var tripDao: TripReportDao? = null
     private var chargingDao: ChargingReportDao? = null
+    private var alertsDao: AlertDao? = null
     private var imei: String? = null
     private var tripSyncJob: Job? = null
     private var chargingSyncJob: Job? = null
 
     private val _tripStatus = MutableStateFlow(TripStatus.NOT_STARTED)
+    private val _chargingSessionStatus = MutableStateFlow(ChargingSessionStatus.NOT_STARTED)
     private val locationManager: LocationManager by lazy {
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
@@ -308,16 +318,6 @@ class ReportProcessingService : Service() {
     private fun startObservingUARTData() {
         serialListenerJob = externalScope.launch(Dispatchers.IO) {
 
-//            val batteryCurrentFlow = flow {
-//                var currentValue = -60.0
-//                while (true) {
-//                    emit(currentValue)
-//                    delay(15_000)
-//                    currentValue = if (currentValue == -60.0) 50.0 else -60.0
-//                }
-//            }
-
-
             serialServiceDataFlow
                 .catch {
                     logHelper.log(
@@ -337,15 +337,7 @@ class ReportProcessingService : Service() {
                     )
                     canFeed
                 }
-//                    .combine(batteryCurrentFlow) { canFeed, batteryCurrent ->
-//                    canFeed.battery = Battery(
-//                        current = batteryCurrent,
-//                        remainingPercent = canFeed.battery.remainingPercent,
-//                        soc = canFeed.battery.soc
-//                    )
-//                    canFeed
-//                    }
-                        .flatMapLatest { canData ->
+                .flatMapLatest { canData ->
                     val vehicleState = flowOf(determineVehicleState(canData))
                     combine(
                         vehicleState,
@@ -368,12 +360,18 @@ class ReportProcessingService : Service() {
             if (lastKnownSoc != null && lastKnownSoc != currentSoc) {
                 val chargingData = json.encodeToString(
                     ChargingData(
-                    vehicleState,
-                    System.currentTimeMillis(),
-                    canFeed.battery.remainingPercent))
+                        vehicleState,
+                        System.currentTimeMillis(),
+                        canFeed.battery.remainingPercent
+                    )
+                )
                 sendChargingData(chargingData)
             }
             lastKnownSoc = currentSoc
+
+            //Alert Detection
+            detectSpeedAlert(canFeed.transmission.speed)
+            detectHarshAccelerationAlert(canFeed.transmission.speed)
 
             logHelper.log(
                 tag = tag,
@@ -402,13 +400,15 @@ class ReportProcessingService : Service() {
                 entryStartChargeSession(canFeed)
                 val chargingData = json.encodeToString(
                     ChargingData(
-                    VehicleState.CHARGING,
-                    System.currentTimeMillis(),
-                    canFeed.battery.remainingPercent
-                ))
+                        VehicleState.CHARGING,
+                        System.currentTimeMillis(),
+                        canFeed.battery.remainingPercent
+                    )
+                )
                 sendChargingData(chargingData)
             }
         }
+        batteryTemperature = canFeed.battery.temperature
         handleMaxBatteryCurrent(canFeed)
         handleMaxBatteryVoltage(canFeed)
     }
@@ -433,11 +433,6 @@ class ReportProcessingService : Service() {
                 )
             )
             sendChargingData(chargingData)
-        }
-
-        detectSpeedAlert(canFeed.transmission.speed)
-        if (detectHarshAccelerationAlert(canFeed.transmission.speed)) {
-            harshAccelerationAlertCount += 1
         }
         handleMaxSpeed(canFeed.transmission.speed)
         updateRunningAverage(canFeed.transmission.speed)
@@ -466,10 +461,10 @@ class ReportProcessingService : Service() {
             handleChargingDuration(canFeed)
             val chargingData = json.encodeToString(
                 ChargingData(
-                VehicleState.IDLE,
-                System.currentTimeMillis(),
-                canFeed.battery.remainingPercent
-            )
+                    VehicleState.IDLE,
+                    System.currentTimeMillis(),
+                    canFeed.battery.remainingPercent
+                )
             )
             sendChargingData(chargingData)
         }
@@ -479,6 +474,19 @@ class ReportProcessingService : Service() {
         if (!idleAlertCheckFlag) {
             if (currentIdleTime > IDLE_THRESHOLD) {
                 idleAlertCount += 1
+                externalScope.launch(Dispatchers.IO) {
+                    alertsDao?.insertAlert(
+                        AlertEntity(
+                            timestamp = currentTime,
+                            description = "Idle Alert Detected Idle Duration - ${
+                                formatMillisToHHMMSS(
+                                    currentIdleTime
+                                )
+                            }",
+                            type = AlertType.IDLE
+                        )
+                    )
+                }
                 idleAlertCheckFlag = true
             }
         }
@@ -567,6 +575,16 @@ class ReportProcessingService : Service() {
             if (!isSpeedOverLimit) {
                 isSpeedOverLimit = true
                 speedAlertCount++
+                externalScope.launch(Dispatchers.IO) {
+                    val currentTime = System.currentTimeMillis()
+                    alertsDao?.insertAlert(
+                        AlertEntity(
+                            timestamp = currentTime,
+                            description = "Speed Alert Detected at - $currentSpeed",
+                            type = AlertType.SPEED
+                        )
+                    )
+                }
             }
         } else {
             isSpeedOverLimit = false
@@ -575,18 +593,29 @@ class ReportProcessingService : Service() {
 
     }
 
-    private fun detectHarshAccelerationAlert(currentSpeed: Int): Boolean {
+    private fun detectHarshAccelerationAlert(currentSpeed: Int) {
 
         val now = System.currentTimeMillis()
         val deltaTime = now - lastTimestampHarshAcceleration
         val deltaSpeed = currentSpeed - harshAccelerationPreviousSpeed
         harshAccelerationPreviousSpeed = currentSpeed
 
-        return if (deltaSpeed >= speedDeltaThreshold && deltaTime >= speedDeltaDurationThreshold) {
+        if (deltaSpeed >= speedDeltaThreshold && deltaTime >= speedDeltaDurationThreshold) {
             lastTimestampHarshAcceleration = now
-            true
-        } else {
-            false
+            externalScope.launch(Dispatchers.IO) {
+                val currentTime = System.currentTimeMillis()
+                alertsDao?.insertAlert(
+                    AlertEntity(
+                        timestamp = currentTime,
+                        description = "Harsh Alert Detected at speed - $currentSpeed DeltaTime - ${
+                            formatMillisToHHMMSS(
+                                deltaTime
+                            )
+                        } DeltaSpeed - $deltaSpeed",
+                        type = AlertType.HARSH_ACCELERATION
+                    )
+                )
+            }
         }
 
     }
@@ -648,7 +677,7 @@ class ReportProcessingService : Service() {
         externalScope.launch(Dispatchers.IO) {
             tripId = tripDao?.insertTrip(
                 TripReportEntity(
-                    startSOC = canFeed.battery.remainingPercent,
+                    startSOC = startSoc,
                     startOdometer = startOdometer,
                     tripStartTimeDurationMs = tripStartTimeDurationMs,
                     tripStatus = _tripStatus.value,
@@ -673,7 +702,13 @@ class ReportProcessingService : Service() {
             idleAlertCheckFlag = false
         }
 
-        _tripStatus.value = TripStatus.COMPLETED
+        val consumedSOC = startSoc - endSoc
+        if(consumedSOC >= 0) {
+            _tripStatus.value = TripStatus.COMPLETED
+        } else {
+            _tripStatus.value = TripStatus.FAILED
+        }
+
 
         externalScope.launch(Dispatchers.IO) {
             val existing = tripDao?.getTripByTripId(tripId)
@@ -684,10 +719,10 @@ class ReportProcessingService : Service() {
                 tripStatus = _tripStatus.value,
                 maximumSpeedKmph = maxCanSpeed.toFloat(),
                 idleDurationMs = totalIdleTime,
-                idleAlertsCount = idleAlertCount,
+                //idleAlertsCount = idleAlertCount,
                 averageSpeedKmph = averageSpeed.toFloat(),
-                speedAlertsCount = speedAlertCount,
-                harshAlertsCount = harshAlertsCount,
+                //speedAlertsCount = speedAlertCount,
+                //harshAlertsCount = harshAlertsCount,
                 modeStats = modeStatsJson,
                 endTripLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
                 endTripLocationLon = canFeed.currentLocation?.longitude ?: 0.0
@@ -700,14 +735,14 @@ class ReportProcessingService : Service() {
 
     private fun entryStartChargeSession(canFeed: CanFeed) {
         externalScope.launch(Dispatchers.IO) {
-            val startChargingTimeMs = System.currentTimeMillis()
-            val startSOC = canFeed.battery.remainingPercent
+            startingChargingTimeMillis = System.currentTimeMillis()
+            chargingStartSoc = canFeed.battery.remainingPercent
 
             chargingSessionId = chargingDao?.insertChargingSession(
                 ChargingSessionEntity(
-                    startSOC = startSOC,
+                    startSOC = chargingStartSoc,
                     batteryCurrent = canFeed.battery.current,
-                    chargingStartTimeDurationMs = startChargingTimeMs,
+                    chargingStartTimeDurationMs = startingChargingTimeMillis,
                     startChargingLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
                     startChargingLocationLon = canFeed.currentLocation?.longitude ?: 0.0,
                 )
@@ -721,18 +756,26 @@ class ReportProcessingService : Service() {
         val chargeRate = (canFeed.battery.volt * canFeed.battery.current) / 1000
         averageVoltage = getAverageVoltage()
         averageCurrent = getAverageCurrent()
+
+        val deliveredSOC = chargingEndSoc - chargingStartSoc
+        if(deliveredSOC >= 0) {
+            _chargingSessionStatus.value = ChargingSessionStatus.COMPLETED
+        } else {
+            _chargingSessionStatus.value = ChargingSessionStatus.FAILED
+        }
+
         externalScope.launch(Dispatchers.IO) {
             val existing = chargingDao?.getChargingSessionBySessionId(chargingSessionId)
             val updated = existing?.copy(
-                //batteryCurrent = canFeed.battery.current,
                 batteryVoltage = canFeed.battery.volt,
                 endSOC = chargingEndSoc,
                 chargeRate = chargeRate,
-                batteryTemperature = canFeed.battery.temperature.toFloat(),
+                batteryTemperature = batteryTemperature.toFloat(),
                 maxBatteryCurrent = maxBatteryCurrent,
                 averageCurrent = getAverageCurrent(),
                 maxBatteryVoltage = maxBatteryVoltage,
                 averageVoltage = averageVoltage,
+                sessionStatus = _chargingSessionStatus.value,
                 chargingEndTimeDurationMs = endingChargingTimeMillis,
                 endChargingLocationLat = canFeed.currentLocation?.latitude ?: 0.0,
                 endChargingLocationLon = canFeed.currentLocation?.longitude ?: 0.0,
@@ -809,6 +852,7 @@ class ReportProcessingService : Service() {
 
         tripDao = TripReportDatabase.getInstance(applicationContext).tripReportDao()
         chargingDao = ChargingReportDatabase.getInstance(applicationContext).chargingReportDao()
+        alertsDao = TripReportDatabase.getInstance(applicationContext).alertDao()
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         createNLSenderNotificationChannel()
         bindToSerialService()
@@ -882,15 +926,14 @@ class ReportProcessingService : Service() {
     }
 
     private fun startTripSync() {
-
         tripSyncJob = externalScope.launch {
             imei?.let { imeiNumber ->
                 val unSyncedTripsEntities = tripDao?.getUnSyncedTrips()
                 unSyncedTripsEntities?.let {
-                    val unSyncedTrips = convertToTripReports(it)
+                    val unSyncedTrips = convertToTripReports(imeiNumber, it)
                     unSyncedTrips.forEach { trip ->
                         sendDataToPortal(
-                            createTripFeed(trip, imeiNumber),
+                            createTripFeed(trip),
                             Constants.TOPIC_TRIP_REPORT
                         ) { isSuccess, messageSize, feedData ->
                             val status = if (isSuccess) "Published" else "Failed to publish"
@@ -925,10 +968,10 @@ class ReportProcessingService : Service() {
             imei?.let { imeiNumber ->
                 val unSyncedChargingSessionsEntities = chargingDao?.getUnSyncedChargingSessions()
                 unSyncedChargingSessionsEntities?.let {
-                    val unSyncedChargingSessions = convertToChargingTelemetryData(it)
+                    val unSyncedChargingSessions = convertToChargingTelemetryData(imeiNumber, it)
                     unSyncedChargingSessions.forEach { chargingSession ->
                         sendDataToPortal(
-                            createChargingSessionsFeed(chargingSession, imeiNumber),
+                            createChargingSessionsFeed(chargingSession),
                             Constants.TOPIC_CHARGING_REPORT
                         ) { isSuccess, messageSize, feedData ->
                             val status = if (isSuccess) "Published" else "Failed to publish"
@@ -958,17 +1001,11 @@ class ReportProcessingService : Service() {
         topic: String,
         onComplete: (isSuccess: Boolean, messageSize: Int, feedData: String) -> Unit = { b: Boolean, i: Int, s: String -> }
     ) {
-        val mqttPacket = """
-        {
-            "type":"$topic",
-            "data":${feedData}
-        }
-        """.trimIndent()
-        logcat { "sendDataToPortal $mqttPacket" }
+        logcat { "sendDataToPortal $feedData" }
 
-        val messageSize = mqttPacket.toByteArray().size
+        val messageSize = feedData.toByteArray().size
         showNotification("Publishing message of $messageSize Bytes") //Show only important data like seq no.
-        portalMQTTClient.publish(topic, mqttPacket) { isSuccess ->
+        portalMQTTClient.publish(topic, feedData) { isSuccess ->
             onComplete(isSuccess, messageSize, feedData)
         }
     }
@@ -993,16 +1030,22 @@ class ReportProcessingService : Service() {
         contentResolver?.registerContentObserver(clearVipUri, true, contentObserver)
     }
 
+    private fun formatMillisToHHMMSS(millis: Long): String {
+        val hours = TimeUnit.MILLISECONDS.toHours(millis)
+        val minutes = TimeUnit.MILLISECONDS.toMinutes(millis) % 60
+        val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60
+        return String.format("%02d:%02d:%02d", hours, minutes, seconds)
+    }
 
-    private fun createTripFeed(trip: TripTelemetryData, imei: String): String {
-        val payload = TripReportPayload(imei = imei, trip = trip)
-        val tripReportFeed = Json.encodeToString(payload)
+    private fun createTripFeed(trip: TripDataInfoWrapper): String {
+        val tripReportFeed = Json.encodeToString(trip)
         return tripReportFeed
     }
 
-    private fun createChargingSessionsFeed(chargingSession: ChargeTelemetryData, imei: String): String {
-        val payload = ChargingSessionPayload(imei = imei, chargingSession = chargingSession)
-        val chargingSessionFeed = Json.encodeToString(payload)
+    private fun createChargingSessionsFeed(
+        chargingSession: ChargingSessionInfoWrapper,
+    ): String {
+        val chargingSessionFeed = Json.encodeToString(chargingSession)
         return chargingSessionFeed
     }
 
@@ -1040,7 +1083,8 @@ class ReportProcessingService : Service() {
         private const val SERIAL_SERVICE_PACKAGE_NAME = "com.nlevcluster.serialservice"
 
         private const val DISPLAY_PACKAGE_NAME = "com.nlevcluster.display"
-        private const val CHARGING_DATA_ACTION_NAME = "com.nlevcluster.display.ACTION_SEND_CHARGE_DATA"
+        private const val CHARGING_DATA_ACTION_NAME =
+            "com.nlevcluster.display.ACTION_SEND_CHARGE_DATA"
         const val CLEAR_VIP_URI = "content://com.nlevcluster.nl_admin.vip_provider/clear_all_data"
         private const val CHARGE_DATA = "CHARGE_DATA"
         private const val TIME_STAMP = "TIME_STAMP"

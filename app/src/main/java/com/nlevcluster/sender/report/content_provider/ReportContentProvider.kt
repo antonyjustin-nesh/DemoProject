@@ -17,6 +17,8 @@ import com.nlevcluster.sender.model.TripsOnDay
 import com.nlevcluster.sender.nllogger.LogHelper
 import com.nlevcluster.sender.nllogger.LogType
 import com.nlevcluster.sender.nllogger.NLLoggerLogHelper
+import com.nlevcluster.sender.report.alerts.AlertDao
+import com.nlevcluster.sender.report.alerts.convertToAlerts
 import com.nlevcluster.sender.report.charge.db.ChargingReportDao
 import com.nlevcluster.sender.report.charge.db.ChargingSessionEntity
 import com.nlevcluster.sender.report.trip.db.TripReportDao
@@ -38,6 +40,7 @@ class ReportContentProvider : ContentProvider() {
 
     private lateinit var tripDao: TripReportDao
     private lateinit var chargingReportDao: ChargingReportDao
+    private lateinit var alertDao: AlertDao
     lateinit var logHelper: LogHelper
 
     private var modeStats: MutableMap<EvMode, ModeStats> = enumValues<EvMode>()
@@ -55,6 +58,7 @@ class ReportContentProvider : ContentProvider() {
         )
         tripDao = entryPoint.tripDao()
         chargingReportDao = entryPoint.chargingDao()
+        alertDao = entryPoint.alertDao()
         logHelper = NLLoggerLogHelper(context)
 
         return true
@@ -272,6 +276,69 @@ class ReportContentProvider : ContentProvider() {
                 cursor
             }
 
+            FETCH_ALERTS_BY_DATE -> {
+                val startDate = uri.getQueryParameter("startDate")
+                val endDate = uri.getQueryParameter("endDate")
+                val cursor = MatrixCursor(arrayOf(FETCH_ALERTS_BY_DATE))
+
+                logHelper.log(
+                    type = LogType.INFO,
+                    tag = tag,
+                    message = "Query received for FETCH_ALERTS_BY_DATE with startDate: $startDate endDate: $endDate"
+                )
+
+                try {
+
+                    val dateFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
+                    val zoneId = ZoneId.systemDefault()
+
+                    val startDateTime = LocalDateTime.parse(startDate, dateFormatter)
+                    val endDateTime = LocalDateTime.parse(endDate, dateFormatter)
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "StartDateTime: $startDateTime, EndDateTime: $endDateTime"
+                    )
+
+                    val startTimestamp = startDateTime.atZone(zoneId).toInstant().toEpochMilli()
+                    val endTimestamp = endDateTime.atZone(zoneId).toInstant().toEpochMilli()
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "StartTimestamp: $startTimestamp, EndTimestamp: $endTimestamp"
+                    )
+
+                    val alertList = alertDao.getAlertsByTimeRange(startTimestamp, endTimestamp)
+                    val montlyAlerts = json.encodeToString(convertToAlerts(alertList))
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "montlyAlerts - $montlyAlerts"
+                    )
+
+                    logHelper.log(
+                        type = LogType.INFO,
+                        tag = tag,
+                        message = "Generated montlyAlerts JSON"
+                    )
+
+                    cursor.addRow(arrayOf(montlyAlerts))
+
+                } catch (e: Exception) {
+                    logHelper.log(
+                        type = LogType.ERROR,
+                        tag = tag,
+                        message =
+                        "Exception in FETCH_ALERTS_BY_DATE query: ${e.message}"
+                    )
+                    cursor.addRow(arrayOf(null))
+                }
+                cursor
+            }
+
             else -> {
                 logHelper.log(
                     type = LogType.ERROR,
@@ -292,6 +359,13 @@ class ReportContentProvider : ContentProvider() {
             CLEAR_ALL_TRIPS -> {
                 logHelper.log(type = LogType.INFO, tag = tag, message = "Deleting all trips")
                 tripDao.deleteAllTrips()
+                context?.contentResolver?.notifyChange(uri, null)
+                return 1
+            }
+
+            CLEAR_ALL_ALERTS -> {
+                logHelper.log(type = LogType.INFO, tag = tag, message = "Deleting all alerts")
+                tripDao.deleteAllAlerts()
                 context?.contentResolver?.notifyChange(uri, null)
                 return 1
             }
@@ -345,9 +419,9 @@ class ReportContentProvider : ContentProvider() {
 
         var totalSocConsumption = 0
 
-        var totalSpeedAlerts = 0
-        var totalIdleAlerts = 0
-        var totalHarshAlerts = 0
+        //var totalSpeedAlerts = 0
+        //var totalIdleAlerts = 0
+        //var totalHarshAlerts = 0
         var totalRegenCount = 0
 
         var ecoDistance = 0.0
@@ -384,10 +458,10 @@ class ReportContentProvider : ContentProvider() {
             }
             maxSpeed = maxOf(maxSpeed, trip.maximumSpeedKmph)
             totalSocConsumption += (trip.endSOC - trip.startSOC)
-            totalSpeedAlerts += trip.speedAlertsCount
+            //totalSpeedAlerts += trip.speedAlertsCount
             totalAverageSpeed += trip.averageSpeedKmph
-            totalIdleAlerts += trip.idleAlertsCount
-            totalHarshAlerts += trip.harshAlertsCount
+            //totalIdleAlerts += trip.idleAlertsCount
+            //totalHarshAlerts += trip.harshAlertsCount
             totalRegenCount += trip.regenCount
             totalDistance += (trip.endOdometer - trip.startOdometer)
             totalIdleDuration += trip.idleDurationMs
@@ -424,9 +498,6 @@ class ReportContentProvider : ContentProvider() {
             averageSpeedKmph = averageSpeed,
             maximumSpeedKmph = maxSpeed,
             tripCount = totalTrips,
-            speedAlertsCount = totalSpeedAlerts,
-            idleAlertsCount = totalIdleAlerts,
-            harshAlertsCount = totalHarshAlerts,
             regenCount = totalRegenCount,
             tripDistanceKm = totalDistance,
             idleDuration = totalIdleDuration,
@@ -525,10 +596,10 @@ class ReportContentProvider : ContentProvider() {
 
     private fun getUsageLevel(usageLimit: Int): Int {
         return when {
-            usageLimit <= 0 -> 0
-            usageLimit < 30 -> 1
-            usageLimit < 50 -> 2
-            else -> 3
+            (usageLimit in 1..19)-> 1
+            (usageLimit in 20..29)-> 2
+            usageLimit > 30-> 3
+            else -> 0
         }
     }
 
@@ -538,9 +609,11 @@ class ReportContentProvider : ContentProvider() {
         const val MONTHLY_TRIP_REPORT = "monthly_trip_report"
         const val DAY_WISE_TRIP_REPORT = "day_wise_trip_report"
         const val CLEAR_ALL_TRIPS = "clear_all_trips"
+        const val CLEAR_ALL_ALERTS = "clear_all_alerts"
         const val MONTHLY_CHARGING_REPORT = "monthly_charging_report"
         const val DAY_WISE_CHARGING_REPORT = "day_wise_charging_report"
         const val CLEAR_ALL_CHARGING_SESSIONS = "clear_all_charging_sessions"
+        const val FETCH_ALERTS_BY_DATE = "fetch_alerts_by_date"
 
     }
 

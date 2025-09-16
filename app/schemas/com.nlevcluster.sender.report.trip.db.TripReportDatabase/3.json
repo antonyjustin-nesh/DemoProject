@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 3,
-    "identityHash": "e3a5b54031e047dc6b84cb0cabc4f65e",
+    "identityHash": "85157a4787c68a097066bbac0cfc146f",
     "entities": [
       {
         "tableName": "trip_report",
@@ -143,50 +143,12 @@
         },
         "indices": [],
         "foreignKeys": []
-      },
-      {
-        "tableName": "alerts",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ID` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `TIME_STAMP` INTEGER NOT NULL, `DESCRIPTION` TEXT NOT NULL, `ALERT_TYPE` TEXT NOT NULL)",
-        "fields": [
-          {
-            "fieldPath": "id",
-            "columnName": "ID",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "timestamp",
-            "columnName": "TIME_STAMP",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "description",
-            "columnName": "DESCRIPTION",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "type",
-            "columnName": "ALERT_TYPE",
-            "affinity": "TEXT",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": true,
-          "columnNames": [
-            "ID"
-          ]
-        },
-        "indices": [],
-        "foreignKeys": []
       }
     ],
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e3a5b54031e047dc6b84cb0cabc4f65e')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '85157a4787c68a097066bbac0cfc146f')"
     ]
   }
 }

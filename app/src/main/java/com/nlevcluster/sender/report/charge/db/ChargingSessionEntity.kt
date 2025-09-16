@@ -5,6 +5,8 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.nlevcluster.sender.report.charge.ChargerType
 import com.nlevcluster.sender.model.ChargeTelemetryData
+import com.nlevcluster.sender.report.trip.ChargingSessionStatus
+import com.nlevcluster.sender.report.trip.TripStatus
 
 
 @Entity(tableName = "charging_session")
@@ -58,6 +60,8 @@ data class ChargingSessionEntity(
     val batteryTemperatureRise: Float = 0f,
     @ColumnInfo(name = "AVERAGE_BATTERY_TEMPERATURE")
     val averageBatteryTemperature: Float = 0f,
+    @ColumnInfo(name = "CHARGING_SESSION_STATUS")
+    val sessionStatus: ChargingSessionStatus = ChargingSessionStatus.NOT_STARTED,
     @ColumnInfo(name = "IS_SYNCED")
     val isSynced: Int = 0,
 )
