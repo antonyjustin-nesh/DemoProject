@@ -38,14 +38,6 @@ data class VehicleCANFeed(
     val ignition: Int,
     @SerialName("54")
     val vehicleStatus: String,
-    @SerialName("100")
-    val gpsFeed: GPSFeed,
-    @SerialName("150")
-    val icFeed: ICFeed,
-    @SerialName("200")
-    val batteryFeed: BatteryFeed,
-    @SerialName("300")
-    val motorFeed: MotorFeed,
 )
 
 @Serializable
@@ -120,7 +112,16 @@ data class MotorFeed(
 
 @Serializable
 data class VehicleFeedWrapper(
-    @SerialName("50") val data: VehicleCANFeed
+    @SerialName("50")
+    val data: VehicleCANFeed,
+    @SerialName("100")
+    val gpsFeed: GPSFeed,
+    @SerialName("150")
+    val icFeed: ICFeed,
+    @SerialName("200")
+    val batteryFeed: BatteryFeed,
+    @SerialName("300")
+    val motorFeed: MotorFeed,
 )
 
 
