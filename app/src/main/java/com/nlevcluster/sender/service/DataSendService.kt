@@ -680,46 +680,46 @@ class DataSendService : Service() {
                 epochTimeStamp = "${System.currentTimeMillis() / 1000}",
                 imei = imei,
                 ignition = getIgnition(processedCANFeed.ignitionStatus),
-                vehicleStatus = getVehicleState(determineVehicleState(processedCANFeed)),
-                gpsFeed = GPSFeed(
-                    latitude = processedCANFeed.currentLocation?.latitude ?: 0.0,
-                    longitude = processedCANFeed.currentLocation?.longitude ?: 0.0,
-                    altitude = processedCANFeed.currentLocation?.altitude?.toDouble() ?: 0.0,
-                    odometer = 0.0,
-                    gpsSpeed = processedCANFeed.currentLocation?.speed ?: 0f,
-                ),
-                batteryFeed = BatteryFeed(
-                    current = processedCANFeed.battery.current.toFloat(),
-                    voltage = processedCANFeed.battery.volt.toFloat(),
-                    soc = processedCANFeed.battery.remainingPercent.toFloat(),
-                    status = if(getVehicleState(determineVehicleState(processedCANFeed)) == "CHARGING") "CHARGING" else "DISCHARGING",
-                    remainingCapacity = 0f,
-                    fullCapacity = 0f,
-                    energy = 0f,
-                    cycleCount = 0,
-                ),
-                icFeed = ICFeed(
-                    odometer = processedCANFeed.odometer.totalKm,
-                    speed = processedCANFeed.transmission.speed.toFloat()
-                ),
-                motorFeed = MotorFeed(
-                    current = 0f,
-                    voltage = 0f,
-                    speed = processedCANFeed.transmission.rpm,
-                    odometer = processedCANFeed.odometer.totalKm,
-                    rpm = processedCANFeed.transmission.rpm,
-                    motorTemperature = 0f,
-                    gearPosition = when (processedCANFeed.evMode) {
-                        EvMode.SPORTS -> 1
-                        EvMode.POWER -> 2
-                        else -> 0
-                    },
-                    breakPosition = "FRONT_RIGHT",
-                    controllerTemperature = 0f,
-                    torque = 0f,
-                    direction = 0,
-                    fault = 0
-                )
+                vehicleStatus = getVehicleState(determineVehicleState(processedCANFeed))
+            ),
+            gpsFeed = GPSFeed(
+                latitude = processedCANFeed.currentLocation?.latitude ?: 0.0,
+                longitude = processedCANFeed.currentLocation?.longitude ?: 0.0,
+                altitude = processedCANFeed.currentLocation?.altitude?.toDouble() ?: 0.0,
+                odometer = 0.0,
+                gpsSpeed = processedCANFeed.currentLocation?.speed ?: 0f,
+            ),
+            batteryFeed = BatteryFeed(
+                current = processedCANFeed.battery.current.toFloat(),
+                voltage = processedCANFeed.battery.volt.toFloat(),
+                soc = processedCANFeed.battery.remainingPercent.toFloat(),
+                status = if(getVehicleState(determineVehicleState(processedCANFeed)) == "CHARGING") "CHARGING" else "DISCHARGING",
+                remainingCapacity = 0f,
+                fullCapacity = 0f,
+                energy = 0f,
+                cycleCount = 0,
+            ),
+            icFeed = ICFeed(
+                odometer = processedCANFeed.odometer.totalKm,
+                speed = processedCANFeed.transmission.speed.toFloat()
+            ),
+            motorFeed = MotorFeed(
+                current = 0f,
+                voltage = 0f,
+                speed = processedCANFeed.transmission.rpm,
+                odometer = processedCANFeed.odometer.totalKm,
+                rpm = processedCANFeed.transmission.rpm,
+                motorTemperature = 0f,
+                gearPosition = when (processedCANFeed.evMode) {
+                    EvMode.SPORTS -> 1
+                    EvMode.POWER -> 2
+                    else -> 0
+                },
+                breakPosition = "FRONT_RIGHT",
+                controllerTemperature = 0f,
+                torque = 0f,
+                direction = 0,
+                fault = 0
             )
         )
         return json.encodeToString(vehicleInfoWrapper)
@@ -734,8 +734,8 @@ class DataSendService : Service() {
 
     private fun getVehicleState(vehicleState: VehicleState): String {
         return when (vehicleState) {
-            VehicleState.RUNNING -> "RUNNING"
-            VehicleState.IDLE -> "IDLE"
+            VehicleState.RUNNING -> "MOVING"
+            VehicleState.IDLE -> "STOP"
             VehicleState.STOP -> "STOP"
             VehicleState.CHARGING -> "CHARGING"
             VehicleState.OFFLINE -> "OFFLINE"
