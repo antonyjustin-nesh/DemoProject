@@ -378,7 +378,7 @@ class DataSendService : Service() {
                         latitude = location.latitude,
                         longitude = location.longitude,
                         accuracy = location.accuracy.toDouble(),
-                        speed = location.speed,
+                        speed = canFeed.transmission.speed.toFloat(),
                         altitude = location.altitude.toFloat()
                     )
                     canFeed
@@ -686,7 +686,7 @@ class DataSendService : Service() {
                     longitude = processedCANFeed.currentLocation?.longitude ?: 0.0,
                     altitude = processedCANFeed.currentLocation?.altitude?.toDouble() ?: 0.0,
                     odometer = 0.0,
-                    gpsSpeed = processedCANFeed.currentLocation?.speed ?: 0f,
+                    gpsSpeed = processedCANFeed.currentLocation?.speed ?: processedCANFeed.transmission.speed.toFloat(),
                 ),
                 batteryFeed = BatteryFeed(
                     current = processedCANFeed.battery.current.toFloat(),

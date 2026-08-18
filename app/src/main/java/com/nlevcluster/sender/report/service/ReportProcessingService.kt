@@ -332,7 +332,7 @@ class ReportProcessingService : Service() {
                         latitude = location.latitude,
                         longitude = location.longitude,
                         accuracy = location.accuracy.toDouble(),
-                        speed = location.speed,
+                        speed = canFeed.transmission.speed.toFloat(),
                         altitude = location.altitude.toFloat()
                     )
                     canFeed
