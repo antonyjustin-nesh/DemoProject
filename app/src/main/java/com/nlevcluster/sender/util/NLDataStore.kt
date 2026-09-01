@@ -55,5 +55,4 @@ class NLDataStore @Inject constructor(
         it[IGN_OFF_DELAY]
     }.first()
 
-
 }

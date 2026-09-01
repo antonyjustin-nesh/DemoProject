@@ -13,3 +13,9 @@ fun String?.asIgnitionStatus(): IgnitionStatus = when (this) {
         } ?: IgnitionStatus.OFF
     }
 }
+fun IgnitionStatus.toTelematicsValue(): Int {
+    return when (this) {
+        IgnitionStatus.ON -> 1
+        else -> 0
+    }
+}
