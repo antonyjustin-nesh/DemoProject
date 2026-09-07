@@ -101,6 +101,7 @@ class DataSendService : Service() {
     private var reconnectJob: Job? = null
     private var telemetryStartJob: Job? = null
     private var telemetryConnectionJob: Job? = null
+    private var telemetryNetworkConnectionJob: Job? = null
     private var vipObserver: ContentObserver? = null
 
     private val ackCallback = object : IAckCallback.Stub() {
@@ -109,18 +110,10 @@ class DataSendService : Service() {
             serviceScope.launch {
                 runCatching { json.decodeFromString(Ack.serializer(), data) }
                     .onSuccess { ack ->
-                        logHelper.log(
-                            tag = "ProtocolUpdate",
-                            type = LogType.DEBUG,
-                            message = "UART acknowledgement ${ack.commandName}: ${ack.status}"
-                        )
+                        log(LogType.DEBUG, "UART acknowledgement ${ack.commandName}: ${ack.status}", "ProtocolUpdate")
                     }
                     .onFailure {
-                        logHelper.log(
-                            tag = "ProtocolUpdate",
-                            type = LogType.DEBUG,
-                            message = "Ignoring unparsable UART acknowledgement"
-                        )
+                        log(LogType.DEBUG, "Ignoring unparsable UART acknowledgement; payloadLength=${data.length ?: 0}", "ProtocolUpdate")
                     }
             }
         }
@@ -132,16 +125,16 @@ class DataSendService : Service() {
             isBound = true
             uartService?.registerAckCallback(ackCallback)
             startObservingUartData()
+            log(LogType.INFO, "UART service connected; acknowledgement callback and CAN observer registered")
             if (pendingBootCommand) {
                 sendCommand("""{"F99":"O02"}""")
                 pendingBootCommand = false
             }
-            log(LogType.INFO, "UART service connected")
         }
 
-        override fun onServiceDisconnected(name: ComponentName?) = handleUartDisconnect()
-        override fun onBindingDied(name: ComponentName?) = handleUartDisconnect()
-        override fun onNullBinding(name: ComponentName?) = handleUartDisconnect()
+        override fun onServiceDisconnected(name: ComponentName?) = handleUartDisconnect("service disconnected")
+        override fun onBindingDied(name: ComponentName?) = handleUartDisconnect("binding died")
+        override fun onNullBinding(name: ComponentName?) = handleUartDisconnect("null binding")
     }
 
     override fun onCreate() {
@@ -150,6 +143,7 @@ class DataSendService : Service() {
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         telematics = TelematicsManager.getInstance()
         createNotificationChannel()
+        log(LogType.INFO, "DataSendService created; initializing telemetry, GPS, VIP, and UART observers")
         registerVipObserver()
         startObservingLocation()
         bindToSerialService()
@@ -160,6 +154,12 @@ class DataSendService : Service() {
         val preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
         val resolvedImei = intent?.getStringExtra(EXTRA_IMEI)
             ?: preferences.getString(PREF_IMEI, null)
+
+        log(
+            LogType.INFO,
+            "Telemetry start requested: startId=$startId, source=" +
+                if (intent?.getStringExtra(EXTRA_FROM) == BOOT_RECEIVER) "boot" else "service"
+        )
 
         if (resolvedImei.isNullOrBlank()) {
             log(LogType.ERROR, "Telemetry cannot start until a device IMEI is provided")
@@ -175,6 +175,7 @@ class DataSendService : Service() {
 
     private fun startTelemetry(deviceImei: String) {
         telemetryStartJob?.cancel()
+        log(LogType.INFO, "Starting telemetry SDK configuration")
         telemetryStartJob = serviceScope.launch {
             runCatching {
                 val config = loadTelemetryConfig(deviceImei)
@@ -185,13 +186,14 @@ class DataSendService : Service() {
                 log(LogType.INFO, "Telematics SDK started for vehicle and instrumentation feeds")
             }.onFailure { error ->
                 telemetryStarted = false
-                log(LogType.ERROR, "Telematics SDK failed to start: ${error.message}")
+                log(LogType.ERROR, "Telematics SDK failed to start: ${error.javaClass.simpleName}")
             }
         }
     }
 
     private fun observeTelemetryConnection() {
         telemetryConnectionJob?.cancel()
+        telemetryNetworkConnectionJob?.cancel()
         telemetryConnectionJob = serviceScope.launch {
             telematics.mqttConnection
                 .drop(1)
@@ -203,6 +205,17 @@ class DataSendService : Service() {
                     log(if (connected) LogType.INFO else LogType.ERROR, status)
                 }
         }
+        telemetryNetworkConnectionJob = serviceScope.launch {
+            telematics.networkConnection
+                .drop(1)
+                .distinctUntilChanged()
+                .collect { connected ->
+                    log(
+                        if (connected) LogType.INFO else LogType.ERROR,
+                        if (connected) "Telemetry network available" else "Telemetry network unavailable"
+                    )
+                }
+        }
     }
 
     private suspend fun loadTelemetryConfig(deviceImei: String): TelematicsRuntimeConfig {
@@ -211,8 +224,9 @@ class DataSendService : Service() {
             nlDataStore.setIgnitionOnDelay(feed.ignitionOnDelayMs.toInt())
             nlDataStore.setIgnitionOffDelay(feed.ignitionOffDelayMs.toInt())
         }
+        val storedBroker = nlDataStore.mqttFeedUrl()?.takeIf(String::isNotBlank)
         val broker = vipFeed?.mqttUrl?.takeIf(String::isNotBlank)
-            ?: nlDataStore.mqttFeedUrl()?.takeIf(String::isNotBlank)
+            ?: storedBroker
             ?: Constants.MQTT_PORTAL_URL
         val vehicleOnDelay = vipFeed?.ignitionOnDelayMs
             ?: nlDataStore.ignitionOnDelay()?.toLong()?.takeIf { it > 0L }
@@ -221,7 +235,7 @@ class DataSendService : Service() {
             ?: nlDataStore.ignitionOffDelay()?.toLong()?.takeIf { it > 0L }
             ?: VEHICLE_IGNITION_OFF_DELAY_MS
 
-        return TelematicsRuntimeConfig(
+        val runtimeConfig = TelematicsRuntimeConfig(
             brokerUrl = broker,
             clientId = deviceImei,
             vehicleFeed = live.nesh.cluster.telematics.FeedConfig(
@@ -237,6 +251,22 @@ class DataSendService : Service() {
                 topic = INSTRUMENTATION_TOPIC,
             ),
         )
+        val brokerSource = when {
+            vipFeed?.mqttUrl?.isNotBlank() == true -> "vip"
+            storedBroker != null -> "dataStore"
+            else -> "default"
+        }
+        log(
+            LogType.INFO,
+            DataSendServiceDiagnostics.runtimeConfig(
+                brokerSource = brokerSource,
+                vehicleOnDelayMs = vehicleOnDelay,
+                vehicleOffDelayMs = vehicleOffDelay,
+                instrumentationOnDelayMs = INSTRUMENTATION_IGNITION_ON_DELAY_MS,
+                instrumentationOffDelayMs = INSTRUMENTATION_IGNITION_OFF_DELAY_MS,
+            )
+        )
+        return runtimeConfig
     }
 
     private fun readVipFeed(): VipFeedConfig? = runCatching {
@@ -254,7 +284,7 @@ class DataSendService : Service() {
                 )
             }
     }.onFailure { error ->
-        log(LogType.ERROR, "VIP configuration unavailable: ${error.message}")
+        log(LogType.ERROR, "VIP configuration unavailable: ${error.javaClass.simpleName}")
     }.getOrNull()
 
     private fun registerVipObserver() {
@@ -263,13 +293,19 @@ class DataSendService : Service() {
             override fun onChange(selfChange: Boolean) {
                 val deviceImei = imei ?: return
                 serviceScope.launch {
+                    log(LogType.INFO, "VIP telemetry configuration changed; reloading configuration")
                     val config = loadTelemetryConfig(deviceImei)
                     if (telemetryStarted) {
-                        telematics.reconfigure(config)
-                        log(
-                            LogType.INFO,
-                            "Applied VIP telemetry interval configuration; broker changes apply next launch"
-                        )
+                        try {
+                            telematics.reconfigure(config)
+                            log(
+                                LogType.INFO,
+                                "Applied VIP telemetry interval configuration; broker changes apply next launch"
+                            )
+                        } catch (error: Exception) {
+                            log(LogType.ERROR, "VIP telemetry reconfiguration failed: ${error.javaClass.simpleName}")
+                            throw error
+                        }
                     }
                 }
             }
@@ -285,23 +321,31 @@ class DataSendService : Service() {
     private fun bindToSerialService() {
         if (isBound) return
         val intent = Intent(SERIAL_SERVICE_INTENT).setPackage(SERIAL_SERVICE_PACKAGE_NAME)
-        if (!bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)) scheduleReconnect()
+        log(LogType.INFO, "Requesting UART service binding")
+        if (!bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)) {
+            log(LogType.ERROR, "UART service bind request was rejected")
+            scheduleReconnect()
+        }
     }
 
-    private fun handleUartDisconnect() {
+    private fun handleUartDisconnect(reason: String) {
         uartService = null
         isBound = false
         serialListenerJob?.cancel()
         serialListenerJob = null
         scheduleReconnect()
-        log(LogType.ERROR, "UART service disconnected")
+        log(LogType.ERROR, "UART service disconnected: $reason")
     }
 
     private fun scheduleReconnect() {
         reconnectJob?.cancel()
         reconnectJob = serviceScope.launch {
+            log(LogType.INFO, "UART reconnect scheduled in ${RECONNECT_DELAY_MS}ms")
             kotlinx.coroutines.delay(RECONNECT_DELAY_MS)
-            if (!isBound) bindToSerialService()
+            if (!isBound) {
+                log(LogType.INFO, "Attempting UART reconnect")
+                bindToSerialService()
+            }
         }
     }
 
@@ -311,17 +355,26 @@ class DataSendService : Service() {
             serialDataFlow()
                 .conflate()
                 .catch { error ->
-                    log(LogType.ERROR, "UART telemetry collection failed: ${error.message}")
+                    log(LogType.ERROR, "UART telemetry collection failed: ${error.javaClass.simpleName}")
                 }
                 .collect { canFeed ->
                     val deviceImei = imei ?: return@collect
-                    telematics.submitVehicleFeed(
-                        canFeed.toVehicleFeedRoot(
-                            imei = deviceImei,
-                            epoch = System.currentTimeMillis() / 1_000L,
+                    try {
+                        telematics.submitVehicleFeed(
+                            canFeed.toVehicleFeedRoot(
+                                imei = deviceImei,
+                                epoch = System.currentTimeMillis() / 1_000L,
+                            )
                         )
-                    )
-                    telematics.updateIgnition(canFeed.ignitionStatus.status == "ON")
+                        telematics.updateIgnition(canFeed.ignitionStatus.status == "ON")
+                        log(LogType.DEBUG, DataSendServiceDiagnostics.canFeedSubmitted(canFeed))
+                    } catch (error: Exception) {
+                        log(
+                            LogType.ERROR,
+                            "CAN vehicle-feed handoff failed: seq=${canFeed.seqNo}, error=${error.javaClass.simpleName}"
+                        )
+                        throw error
+                    }
                 }
         }
     }
@@ -332,9 +385,17 @@ class DataSendService : Service() {
             locationUpdates()
                 .filterNotNull()
                 .catch { error ->
-                    log(LogType.ERROR, "GPS telemetry collection failed: ${error.message}")
+                    log(LogType.ERROR, "GPS telemetry collection failed: ${error.javaClass.simpleName}")
                 }
-                .collect { location -> telematics.updateLocation(location) }
+                .collect { location ->
+                    try {
+                        telematics.updateLocation(location)
+                        log(LogType.DEBUG, DataSendServiceDiagnostics.gpsUpdateAccepted(location))
+                    } catch (error: Exception) {
+                        log(LogType.ERROR, "GPS telemetry handoff failed: ${error.javaClass.simpleName}")
+                        throw error
+                    }
+                }
         }
     }
 
@@ -342,12 +403,17 @@ class DataSendService : Service() {
         val callback = object : IProcessedFeedCallback.Stub() {
             override fun onProcessedFeedReceived(data: String?) {
                 if (!data.isValidJson()) {
-                    log(LogType.ERROR, "Ignoring invalid UART feed")
+                    log(LogType.ERROR, "Ignoring invalid UART feed; payloadLength=${data?.length ?: 0}")
                     return
                 }
                 runCatching { json.decodeFromString(CanFeed.serializer(), data.orEmpty()) }
-                    .onSuccess { trySend(it) }
-                    .onFailure { log(LogType.ERROR, "Unable to parse UART feed: ${it.message}") }
+                    .onSuccess {
+                        log(LogType.DEBUG, DataSendServiceDiagnostics.canFeedAccepted(it))
+                        trySend(it)
+                    }
+                    .onFailure {
+                        log(LogType.ERROR, "Unable to parse UART feed: ${it.javaClass.simpleName}; payloadLength=${data?.length ?: 0}")
+                    }
             }
         }
         val service = uartService
@@ -396,17 +462,26 @@ class DataSendService : Service() {
 
     private fun sendCommand(command: String) {
         serviceScope.launch {
-            runCatching { uartService?.writeData(command) }
-                .onFailure { log(LogType.ERROR, "Failed to send UART command: ${it.message}") }
+            val service = uartService
+            if (service == null) {
+                log(LogType.ERROR, "UART command skipped because service is not bound; payloadLength=${command.length}")
+                return@launch
+            }
+            log(LogType.DEBUG, "Sending UART command; payloadLength=${command.length}")
+            runCatching { service.writeData(command) }
+                .onSuccess { log(LogType.DEBUG, "UART command dispatched; payloadLength=${command.length}") }
+                .onFailure { log(LogType.ERROR, "Failed to send UART command: ${it.javaClass.simpleName}") }
         }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        log(LogType.INFO, "DataSendService stopping; telemetryStarted=$telemetryStarted, uartBound=$isBound")
         vipObserver?.let { contentResolver.unregisterContentObserver(it) }
         vipObserver = null
         telemetryConnectionJob?.cancel()
+        telemetryNetworkConnectionJob?.cancel()
         telemetryStartJob?.cancel()
         serialListenerJob?.cancel()
         locationListenerJob?.cancel()
@@ -437,9 +512,9 @@ class DataSendService : Service() {
         )
     }
 
-    private fun log(type: LogType, message: String) {
-        logcat(tag) { message }
-        logHelper.log(tag = tag, type = type, message = message)
+    private fun log(type: LogType, message: String, logTag: String = tag) {
+        logcat(logTag) { message }
+        logHelper.log(tag = logTag, type = type, message = message)
     }
 
     private fun String?.isValidJson(): Boolean = !isNullOrBlank() && runCatching {
