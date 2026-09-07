@@ -9,17 +9,16 @@ import org.junit.Test
 class DataSendServiceDiagnosticsTest {
 
     @Test
-    fun `CAN diagnostic includes runtime state without a location`() {
-        val message = DataSendServiceDiagnostics.canFeedAccepted(
-            CanFeed(
-                seqNo = 42,
-                currentLocation = LocationInfo(latitude = 12.9716, longitude = 77.5946),
-            )
-        )
+    fun `CAN summary is compact and resets after emission`() {
+        val summary = SenderCanDiagnosticsSummary()
+        summary.recordAccepted(CanFeed(seqNo = 42))
+        summary.recordSubmitted(CanFeed(seqNo = 42))
+        val message = summary.snapshotAndReset().orEmpty()
 
-        assertTrue(message.contains("seq=42"))
+        assertTrue(message.contains("accepted=1"))
+        assertTrue(message.contains("submitted=1"))
         assertFalse(message.contains("12.9716"))
-        assertFalse(message.contains("77.5946"))
+        assertTrue(summary.snapshotAndReset() == null)
     }
 
     @Test

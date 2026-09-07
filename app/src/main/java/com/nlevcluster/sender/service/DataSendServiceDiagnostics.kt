@@ -6,17 +6,6 @@ import com.nlevcluster.sender.model.LocationInfo
 /** Safe, compact diagnostics for logs that are exported outside the Sender app. */
 internal object DataSendServiceDiagnostics {
 
-    fun canFeedAccepted(feed: CanFeed): String =
-        "CAN feed accepted: seq=${feed.seqNo}, ignition=${feed.ignition}, " +
-            "ignitionStatus=${feed.ignitionStatus.status}, mode=${feed.evMode}, " +
-            "simulated=${feed.isSimulated}, speedKph=${feed.transmission.speed}, " +
-            "rpm=${feed.transmission.rpm.toInt()}, batteryPercent=${feed.battery.remainingPercent}, " +
-            "batteryVoltage=${feed.battery.volt}, batteryCurrent=${feed.battery.current}, " +
-            "odometerKm=${feed.odometer.totalKm}"
-
-    fun canFeedSubmitted(feed: CanFeed): String =
-        "CAN vehicle feed submitted: seq=${feed.seqNo}, ignitionOn=${feed.ignitionStatus.status == "ON"}"
-
     fun gpsUpdateAccepted(location: LocationInfo): String =
         "GPS update accepted: accuracyM=${location.accuracy}, speedMps=${location.speed}, altitudeM=${location.altitude}"
 
@@ -34,4 +23,26 @@ internal object DataSendServiceDiagnostics {
 
     private const val VEHICLE_TOPIC_NAME = "CLUSTER_DATA"
     private const val INSTRUMENTATION_TOPIC_NAME = "INSTRUMENTATION"
+}
+
+internal class SenderCanDiagnosticsSummary {
+    private var accepted = 0
+    private var submitted = 0
+    private var invalid = 0
+    private var decodeFailures = 0
+    private var handoffFailures = 0
+    private var ignitionOn: Boolean? = null
+
+    @Synchronized fun recordAccepted(feed: CanFeed) { accepted++; ignitionOn = feed.ignitionStatus.status == "ON" }
+    @Synchronized fun recordSubmitted(feed: CanFeed) { submitted++; ignitionOn = feed.ignitionStatus.status == "ON" }
+    @Synchronized fun recordInvalidPayload() { invalid++ }
+    @Synchronized fun recordDecodeFailure() { decodeFailures++ }
+    @Synchronized fun recordHandoffFailure() { handoffFailures++ }
+
+    @Synchronized fun snapshotAndReset(): String? {
+        if (accepted + submitted + invalid + decodeFailures + handoffFailures == 0) return null
+        val result = "CAN summary 60s: accepted=$accepted, submitted=$submitted, invalid=$invalid, decodeFailures=$decodeFailures, handoffFailures=$handoffFailures, ignitionOn=${ignitionOn ?: "unknown"}"
+        accepted = 0; submitted = 0; invalid = 0; decodeFailures = 0; handoffFailures = 0; ignitionOn = null
+        return result
+    }
 }

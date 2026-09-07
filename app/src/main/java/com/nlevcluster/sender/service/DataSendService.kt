@@ -102,7 +102,9 @@ class DataSendService : Service() {
     private var telemetryStartJob: Job? = null
     private var telemetryConnectionJob: Job? = null
     private var telemetryNetworkConnectionJob: Job? = null
+    private var canDiagnosticsSummaryJob: Job? = null
     private var vipObserver: ContentObserver? = null
+    private val canDiagnostics = SenderCanDiagnosticsSummary()
 
     private val ackCallback = object : IAckCallback.Stub() {
         override fun onAckReceived(data: String?) {
@@ -351,6 +353,13 @@ class DataSendService : Service() {
 
     private fun startObservingUartData() {
         serialListenerJob?.cancel()
+        canDiagnosticsSummaryJob?.cancel()
+        canDiagnosticsSummaryJob = serviceScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(CAN_DIAGNOSTICS_SUMMARY_INTERVAL_MS)
+                canDiagnostics.snapshotAndReset()?.let { log(LogType.DEBUG, it, "CAN_SUMMARY") }
+            }
+        }
         serialListenerJob = serviceScope.launch {
             serialDataFlow()
                 .conflate()
@@ -367,8 +376,9 @@ class DataSendService : Service() {
                             )
                         )
                         telematics.updateIgnition(canFeed.ignitionStatus.status == "ON")
-                        log(LogType.DEBUG, DataSendServiceDiagnostics.canFeedSubmitted(canFeed))
+                        canDiagnostics.recordSubmitted(canFeed)
                     } catch (error: Exception) {
+                        canDiagnostics.recordHandoffFailure()
                         log(
                             LogType.ERROR,
                             "CAN vehicle-feed handoff failed: seq=${canFeed.seqNo}, error=${error.javaClass.simpleName}"
@@ -403,15 +413,17 @@ class DataSendService : Service() {
         val callback = object : IProcessedFeedCallback.Stub() {
             override fun onProcessedFeedReceived(data: String?) {
                 if (!data.isValidJson()) {
+                    canDiagnostics.recordInvalidPayload()
                     log(LogType.ERROR, "Ignoring invalid UART feed; payloadLength=${data?.length ?: 0}")
                     return
                 }
                 runCatching { json.decodeFromString(CanFeed.serializer(), data.orEmpty()) }
                     .onSuccess {
-                        log(LogType.DEBUG, DataSendServiceDiagnostics.canFeedAccepted(it))
+                        canDiagnostics.recordAccepted(it)
                         trySend(it)
                     }
                     .onFailure {
+                        canDiagnostics.recordDecodeFailure()
                         log(LogType.ERROR, "Unable to parse UART feed: ${it.javaClass.simpleName}; payloadLength=${data?.length ?: 0}")
                     }
             }
@@ -483,6 +495,7 @@ class DataSendService : Service() {
         telemetryConnectionJob?.cancel()
         telemetryNetworkConnectionJob?.cancel()
         telemetryStartJob?.cancel()
+        canDiagnosticsSummaryJob?.cancel()
         serialListenerJob?.cancel()
         locationListenerJob?.cancel()
         reconnectJob?.cancel()
@@ -543,6 +556,7 @@ class DataSendService : Service() {
         const val PREF_IMEI = "imei"
         const val SERIAL_SERVICE_INTENT = "com.nlevcluster.serialservice.BIND_UART_SERVICE"
         const val SERIAL_SERVICE_PACKAGE_NAME = "com.nlevcluster.serialservice"
+        const val CAN_DIAGNOSTICS_SUMMARY_INTERVAL_MS = 60_000L
         const val GPS_MIN_TIME_MS = 1_000L
         const val GPS_MIN_DISTANCE_M = 1f
     }
