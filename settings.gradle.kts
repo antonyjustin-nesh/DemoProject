@@ -13,6 +13,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NlevSender"
+rootProject.name = "Music-Phone"
 include(":app")
  

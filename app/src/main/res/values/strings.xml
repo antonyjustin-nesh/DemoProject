@@ -1,5 +1,35 @@
 <resources>
-    <string name="app_name">NL-Sender</string>
-    <string name="share_logs">Share Logs</string>
-    <string name="data_sending">Data Sending...</string>
+    <string name="app_name">Music-Phone</string>
+
+    <string name="media_bridge_channel_name">Cluster music bridge</string>
+    <string name="media_bridge_notification_title">Sending music to cluster</string>
+    <string name="media_bridge_notification_text">Now-playing details are shared over Bluetooth</string>
+    <string name="media_bridge_listener_label">Music-Phone media access</string>
+
+    <string name="section_now_sending">Now sending</string>
+    <string name="section_cluster">Cluster</string>
+    <string name="section_setup">Setup</string>
+    <string name="nothing_playing">Nothing playing</string>
+    <string name="no_cluster_selected">No cluster selected</string>
+    <string name="choose_cluster">Choose cluster</string>
+    <string name="choose_cluster_title">Paired Bluetooth devices</string>
+    <string name="no_paired_devices">No paired devices. Pair the cluster in Bluetooth settings first.</string>
+    <string name="open_bluetooth_settings">Bluetooth settings</string>
+    <string name="grant_bluetooth">Allow Bluetooth access</string>
+    <string name="grant_notification_access">Enable notification access</string>
+    <string name="start_bridge">Start sending</string>
+    <string name="stop_bridge">Stop sending</string>
+    <string name="album_art">Album art</string>
+
+    <string name="status_stopped">Stopped</string>
+    <string name="status_connecting">Connecting to cluster…</string>
+    <string name="status_connected">Connected to cluster</string>
+    <string name="status_retrying">Cluster not reachable, retrying in %1$ds</string>
+
+    <string name="blocked_no_cluster">Choose the paired cluster first</string>
+    <string name="blocked_notification_access">Enable notification access so Music-Phone can read the playing song</string>
+    <string name="blocked_bluetooth_permission">Allow Bluetooth (Nearby devices) access to connect to the cluster</string>
+
+    <string name="state_playing">Playing</string>
+    <string name="state_paused">Paused</string>
 </resources>
