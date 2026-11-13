@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Music-Phone</string>
+    <string name="app_name">Demo App</string>
 
     <string name="media_bridge_channel_name">Cluster music bridge</string>
     <string name="media_bridge_notification_title">Sending music to cluster</string>

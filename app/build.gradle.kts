@@ -11,7 +11,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "live.nesh.music.phone"
+        applicationId = "com.nesh.demo1"
         minSdk = 31
         targetSdk = 33
         versionCode = 1
