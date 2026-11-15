@@ -1,80 +1,86 @@
 package live.nesh.music.phone
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
+
 
 class MainActivity : AppCompatActivity() {
 
-    lateinit var button: Button
-    lateinit var btnFinish: Button
+    //lateinit var etSample: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        button = findViewById(R.id.btnClick)
-        button.setOnClickListener {
+        Log.d("Test","onCreate() Called")
 
-            val channel = NotificationChannel(
-                "service_channel",
-                "Foreground Service",
-                NotificationManager.IMPORTANCE_LOW
-            )
+        val btnStart = findViewById<Button>(R.id.btnStart)
+        val btnUpdate = findViewById<Button>(R.id.btnUpdate)
+        val btnFinish = findViewById<Button>(R.id.btnFinish)
 
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
 
-            val intent = Intent(this, MyService::class.java)
-            ContextCompat.startForegroundService(this, intent)
+        //etSample = findViewById<EditText>(R.id.etSample)
+
+        // START SERVICE
+        btnStart.setOnClickListener {
+
         }
 
+        // UPDATE NOTIFICATION
+        btnUpdate.setOnClickListener {
 
-        btnFinish = findViewById(R.id.btnFinish)
+        }
+
+        // STOP SERVICE
         btnFinish.setOnClickListener {
-            stopService(Intent(this, MyService::class.java))
+
         }
 
     }
 
     override fun onStart() {
         super.onStart()
-        Log.d("Test", "Activity 1 onStart Called ${Thread.currentThread().id}")
-    }
-
-    override fun onResume() {
-        super.onResume()
-        Log.d("Test", "Activity 1  onResume Called ${Thread.currentThread().id}")
-    }
-
-    override fun onRestart() {
-        super.onRestart()
-        Log.d("Test", "Activity 1 onRestart Called ${Thread.currentThread().id}")
+        Log.d("Test","onStart() Called")
     }
 
     override fun onPause() {
         super.onPause()
-        Log.d("Test", "Activity 1 onPause Called ${Thread.currentThread().id}")
+        Log.d("Test","onPause() Called")
+    }
+
+    override fun onRestart() {
+        super.onRestart()
+        Log.d("Test","onRestart() Called")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Log.d("Test","onResume() Called")
     }
 
     override fun onStop() {
         super.onStop()
-        Log.d("Test", "Activity 1 onStop Called ${Thread.currentThread().id}")
+        Log.d("Test","onStop() Called")
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d("Test", "Activity 1 onDestroy Called ${Thread.currentThread().id}")
+        Log.d("Test","onDestroy() Called")
     }
 
-    override fun onBackPressed() {
-        super.onBackPressed()
+    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
+        super.onRestoreInstanceState(savedInstanceState)
+        Log.d("Test","onRestoreInstanceState Called ${savedInstanceState.getString("sampleString")}     ")
+        //etSample.setText(savedInstanceState.getString("sampleString"))
     }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        Log.d("Test","onSaveInstanceState Called ${outState.getString("sampleString")}      ")
+        //outState.putString("sampleString",etSample.text.toString())
+    }
+
 
 }

@@ -1,33 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
-    tools:context=".MainActivity"
     android:orientation="vertical"
     android:gravity="center"
-    android:background="@color/white"
-    >
+    android:padding="24dp">
 
-    <TextView
+
+    <EditText
+        android:id="@+id/etSample"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Activity - 1"
-        />
+        android:text=""/>
 
     <Button
-        android:id="@+id/btnClick"
+        android:id="@+id/btnStart"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Activity1 Redirect"/>
+        android:text="Start Service" />
+
+    <Button
+        android:id="@+id/btnUpdate"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Update Notification" />
 
     <Button
         android:id="@+id/btnFinish"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Finish"/>
-
+        android:layout_marginTop="16dp"
+        android:text="Stop Service" />
 
 </LinearLayout>
