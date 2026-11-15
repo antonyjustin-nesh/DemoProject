@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="24dp"
+    android:background="#fffccc">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Activity B"/>
+
+    <Button
+        android:id="@+id/btnStartA"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Start A" />
+    <Button
+        android:id="@+id/btnStartB"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Start B" />
+
+    <Button
+        android:id="@+id/btnStartC"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Start C" />
+
+    <Button
+        android:id="@+id/btnStartD"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Start D" />
+
+    <Button
+        android:id="@+id/btnFinish"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Finish" />
+
+</LinearLayout>
