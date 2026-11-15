@@ -1,14 +1,13 @@
 package live.nesh.music.phone
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
 import androidx.appcompat.app.AppCompatActivity
 
 
-class MainActivity : AppCompatActivity() {
-
-    //lateinit var etSample: EditText
+class PersonList : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -20,12 +19,16 @@ class MainActivity : AppCompatActivity() {
         val btnUpdate = findViewById<Button>(R.id.btnUpdate)
         val btnFinish = findViewById<Button>(R.id.btnFinish)
 
+        val person = Person(name = "TestName", gmail = "TestGmail", age = 21)
 
         //etSample = findViewById<EditText>(R.id.etSample)
 
         // START SERVICE
         btnStart.setOnClickListener {
 
+            val intent = Intent(this, PersonDetails::class.java)
+            intent.putExtra("person_detail",person)
+            startActivity(intent)
         }
 
         // UPDATE NOTIFICATION
@@ -69,18 +72,5 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         Log.d("Test","onDestroy() Called")
     }
-
-    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
-        super.onRestoreInstanceState(savedInstanceState)
-        Log.d("Test","onRestoreInstanceState Called ${savedInstanceState.getString("sampleString")}     ")
-        //etSample.setText(savedInstanceState.getString("sampleString"))
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        Log.d("Test","onSaveInstanceState Called ${outState.getString("sampleString")}      ")
-        //outState.putString("sampleString",etSample.text.toString())
-    }
-
 
 }
