@@ -23,10 +23,12 @@
             </intent-filter>
         </activity>
 
-        <service android:name=".BoundServiceExample"
-            android:process=":remote"
-            android:exported="false"
-            />
+        <receiver android:name=".MyBroadcastReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.nesh.demo.MY_BROADCAST" />
+            </intent-filter>
+        </receiver>
 
     </application>
 
