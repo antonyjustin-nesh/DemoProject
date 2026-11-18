@@ -23,6 +23,11 @@
             </intent-filter>
         </activity>
 
+        <service android:name=".BoundServiceExample"
+            android:process=":remote"
+            android:exported="false"
+            />
+
     </application>
 
 </manifest>
