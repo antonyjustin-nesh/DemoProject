@@ -1,7 +1,10 @@
 package live.nesh.music.phone
 
+import android.content.ComponentName
 import android.content.Intent
+import android.content.ServiceConnection
 import android.os.Bundle
+import android.os.IBinder
 import android.util.Log
 import android.widget.Button
 import androidx.appcompat.app.AppCompatActivity
@@ -9,9 +12,29 @@ import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
 
+    var myService = BoundServiceExample()
+    val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(
+            name: ComponentName?,
+            service: IBinder
+        ) {
+            Log.d("Test","service connected")
+            var mServiceBinder = service as BoundServiceExample.MyServiceBinder
+            myService = mServiceBinder.getService()
+
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            Log.d("Test","service dis connected")
+        }
+
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        val intent = Intent(this, BoundServiceExample::class.java)
 
         Log.d("Test","Activity - A onCreate Called")
 
@@ -24,12 +47,24 @@ class MainActivity : AppCompatActivity() {
 
         // START SERVICE
         btnStart.setOnClickListener {
-            val intent = Intent(this, MyBroadcastReceiver::class.java)
-            intent.setAction("com.nesh.demo.MY_BROADCAST")
-            sendBroadcast(intent)
+            startService(intent)
         }
 
         btnStop.setOnClickListener {
+            stopService(intent)
+        }
+
+        btnBindService.setOnClickListener {
+            bindService(intent,  serviceConnection, BIND_AUTO_CREATE)
+        }
+
+        btnUnBindService.setOnClickListener {
+            unbindService(serviceConnection)
+        }
+
+        btnGetNumber.setOnClickListener {
+            val receivedNumber = myService.getNumber()
+            Log.d("Test","$receivedNumber")
         }
 
     }
