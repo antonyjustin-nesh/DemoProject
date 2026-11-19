@@ -1,6 +1,10 @@
 package live.nesh.music.phone
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
@@ -8,6 +12,8 @@ import androidx.appcompat.app.AppCompatActivity
 
 
 class MainActivity : AppCompatActivity() {
+
+    lateinit var broadcastReceiver: BroadcastReceiver
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -21,6 +27,7 @@ class MainActivity : AppCompatActivity() {
         val btnUnBindService = findViewById<Button>(R.id.btnUnBindService)
         val btnGetNumber = findViewById<Button>(R.id.btnGetNumber)
 
+        broadcastReceiver = MyBroadcastReceiver()
 
         // START SERVICE
         btnStart.setOnClickListener {
@@ -37,6 +44,18 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         Log.d("Test","Activity - A onStart Called")
+/*        adb shell am broadcast -a com.nesh.demo.MY_BROADCAST -p com.nesh.demo1*/ /*working*/
+/*        adb shell am broadcast -n com.nesh.demo1/live.nesh.music.phone.MyBroadcastReceiver -a com.nesh.demo.MY_BROADCAST*/   /*not working*/
+
+
+        val intentFilter = IntentFilter("com.nesh.demo.MY_BROADCAST")
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(broadcastReceiver, intentFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(broadcastReceiver, intentFilter)
+        }
+
     }
 
     override fun onPause() {
@@ -62,6 +81,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d("Test","Activity - A onDestroy Called")
+        unregisterReceiver(broadcastReceiver)
     }
 
 }

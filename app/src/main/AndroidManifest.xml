@@ -25,10 +25,14 @@
 
         <receiver android:name=".MyBroadcastReceiver"
             android:exported="false">
-            <intent-filter>
-                <action android:name="com.nesh.demo.MY_BROADCAST" />
-            </intent-filter>
+<!--            <intent-filter>-->
+<!--                <action android:name="com.nesh.demo.MY_BROADCAST" />-->
+<!--            </intent-filter>-->
         </receiver>
+
+<!--        we need to mention broadcast receiver's package name and that broadcast receiver's class name explicitly-->
+<!--        adb shell am broadcast -n com.nesh.demo1/live.nesh.music.phone.MyBroadcastReceiver -a com.nesh.demo.MY_BROADCAST-->
+<!--        at the same time we need to set android:exported="true" in this broadcast receiver in the manifest-->
 
     </application>
 
