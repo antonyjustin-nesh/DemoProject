@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="live.nesh.music.phone">
 
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -24,15 +26,15 @@
         </activity>
 
         <receiver android:name=".MyBroadcastReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.AIRPLANE_MODE" />
-                <action android:name="android.intent.action.BATTERY_LOW" />
-                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
-                <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" />
-                <action android:name="android.intent.action.SCREEN_ON" />
-                <action android:name="android.intent.action.SCREEN_OFF" />
-            </intent-filter>
+            android:exported="true">
+<!--            <intent-filter>-->
+<!--                <action android:name="android.intent.action.AIRPLANE_MODE" />-->
+<!--                <action android:name="android.intent.action.BATTERY_LOW" />-->
+<!--                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />-->
+<!--                <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" />-->
+<!--                <action android:name="android.intent.action.SCREEN_ON" />-->
+<!--                <action android:name="android.intent.action.SCREEN_OFF" />-->
+<!--            </intent-filter>-->
         </receiver>
 
     </application>
